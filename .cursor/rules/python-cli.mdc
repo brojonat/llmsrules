@@ -1,8 +1,5 @@
 ---
 description: Scaffold and structure Python Click CLIs
-globs:
-  - "**/*cli.py"
-  - "**/commands.py"
 alwaysApply: false
 tags: [python, click, cli]
 priority: 3

@@ -1,0 +1,53 @@
+---
+description: Opinionated project skeleton for CLI, FastAPI server, notebooks, and assets
+globs:
+alwaysApply: false
+---
+
+Here is a polished starting structure:
+
+```
+.
+    pyproject.toml                  # project metadata, deps, tooling
+    Makefile                        # common tasks (run, lint, test, build)
+    nb.ipynb                        # exploratory notebook(s)
+    .env.client                     # client-side env vars (if any)
+    .env.server                     # server env vars
+    .env.datasette                  # datasette env vars (optional)
+
+    src/                            # application/CLI package (editable install)
+        cli.py                      # Click CLI entrypoint
+        .env.example                # sample env for local dev
+
+    server/                         # FastAPI app
+        main.py                     # ASGI entrypoint
+        .env.example
+        templates/                  # Jinja2 templates
+        static/                     # static assets
+            index.html
+            index.js
+
+    datasette/                      # optional: datasette project
+        datasette.yaml
+        .env.example
+        templates/
+
+    data/                           # datasets and outputs (git-ignore large/raw)
+        output.(sqlite|csv|json)
+
+    plots/                          # generated figures
+        plot.png
+```
+
+Components and references:
+
+- **CLI**: `src/cli.py` — see the Python CLI rule: [python-cli.mdc](./python-cli.mdc)
+- **FastAPI server**: `server/main.py` — see the FastAPI rule: [fastapi.mdc](./fastapi.mdc)
+- **Project metadata**: `pyproject.toml` — see the PyProject rule: [pyproject.mdc](./pyproject.mdc)
+- **ML workflow notes**: notebooks and pipelines — see: [scikit-learn.mdc](./scikit-learn.mdc)
+
+Notes:
+
+- Keep a "src" layout for packages so editable installs work cleanly.
+- Use `.env.server` and `.env.client` for local development. Provide `.env.example` files alongside code.
+- Static assets live under `server/static/` and Jinja templates under `server/templates/`.

@@ -1,6 +1,6 @@
 ---
-description:
 globs:
+  - "**/*.py"
 alwaysApply: false
 ---
 
@@ -12,10 +12,10 @@ Here's what you should include in pyproject.toml files:
 [project.scripts]
 # Maps the CLI command to your package's entrypoint
 # If you use a src layout, your package module lives under src/your_package
-pymc-llm-dev = "your_package.cli:main"
+{{ project_cli }} = "your_package.cli:main"
 ```
 
-- A "src" layout for package discovery so you can do `uv pip install -e .`
+- A "src" layout for package discovery so you can do `uv pip install -e .`:
 
 ```toml
 [build-system]
@@ -29,7 +29,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 ```
 
-- A ruff section for configuring ruff
+- A ruff section for configuring ruff:
 
 ```toml
 [tool.ruff]
@@ -38,7 +38,7 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B"]  # this may be a bit overzealous
 ignore = ["E203", "W503"]
 
 [tool.ruff.format]
@@ -47,7 +47,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 ```
 
-- A pytest section for configuring pytest and automatic test discovery
+- A pytest section for configuring pytest and automatic test discovery:
 
 ```toml
 [tool.pytest.ini_options]
