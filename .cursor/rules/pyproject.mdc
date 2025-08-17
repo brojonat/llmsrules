@@ -1,0 +1,55 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+Here's what you should include in pyproject.toml files:
+
+- A script invocation:
+
+```toml
+[project.scripts]
+# Maps the CLI command to your package's entrypoint
+# If you use a src layout, your package module lives under src/your_package
+pymc-llm-dev = "your_package.cli:main"
+```
+
+- A "src" layout for package discovery so you can do `uv pip install -e .`
+
+```toml
+[build-system]
+requires = ["setuptools>=68.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+```
+
+- A ruff section for configuring ruff
+
+```toml
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E203", "W503"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+```
+
+- A pytest section for configuring pytest and automatic test discovery
+
+```toml
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py", "*_tests.py"]
+```
