@@ -1,6 +1,6 @@
 # llmsrules
 
-This is a repo for storing the dotfiles I use for various LLM based agents (Cursor, Goose, etc). Each agent seems to take a slightly different format; each provider has a separate folder here.
+This is a repo for storing the dotfiles I use for various LLM based agents (Cursor, Goose, etc). Each agent seems to take a slightly different format; each provider has a separate folder here. I treat this kind of like notes when I'm reading over a new API, so it's multipurpose.
 
 The `.cursorrules` is the prototypical example. Cursor-specific rules live under `.cursor/rules/` and use `.mdc` files with front‑matter (description, globs, alwaysApply) plus guidance content.
 
