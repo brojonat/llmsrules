@@ -9,6 +9,7 @@ Here's an example minimal server:
 import os
 import sys
 import logging
+from contextlib import asynccontextmanager
 from typing import Dict
 
 import structlog
@@ -82,7 +83,17 @@ def require_claims(
 # -------------------------
 # App & instrumentation
 # -------------------------
-app = FastAPI(title=os.getenv("SERVICE_NAME", "fastapi-app"))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info("service.startup")
+    try:
+        yield
+    finally:
+        log.info("service.shutdown")
+
+
+app = FastAPI(title=os.getenv("SERVICE_NAME", "fastapi-app"), lifespan=lifespan)
 
 # Prometheus: exposes /metrics by default
 Instrumentator().instrument(app).expose(app)
@@ -97,16 +108,6 @@ def healthz():
 def whoami(claims: Dict = Depends(require_claims)):
     # claims is injected as the first parameter via Depends
     return {"claims": claims}
-
-
-@app.on_event("startup")
-async def on_startup():
-    log.info("service.startup")
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    log.info("service.shutdown")
 
 
 if __name__ == "__main__":
