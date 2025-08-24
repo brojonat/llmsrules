@@ -3,6 +3,8 @@ description: Minimal FastAPI server with JWT Bearer auth (env secret), Prometheu
 alwaysApply: false
 ---
 
+# Example Implementation
+
 Here's an example minimal server:
 
 ```python
@@ -171,3 +173,7 @@ Then call the authenticated endpoint:
 ```bash
 curl -H "Authorization: Bearer <token>" http://localhost:8000/whoami
 ```
+
+# Bookkeeping
+
+After you make updates to the server code, look for an adjacent README.md file and make any necessary updates to it so that the README is an accurate description of the server's behavior.

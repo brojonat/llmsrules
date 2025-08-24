@@ -6,6 +6,8 @@ priority: 3
 version: 1.0.0
 ---
 
+# Example Implementation
+
 Here's the file structure to use for complex Python CLIs with multiple subcommands:
 
 ```
@@ -62,3 +64,7 @@ cli.add_command(bar, name="bar")
 if __name__ == "__main__":
     main()
 ```
+
+# Bookkeeping
+
+After you make updates to the CLI, look for an adjacent README.md file and make any necessary updates to it so that the README is an accurate description of the server's behavior.
