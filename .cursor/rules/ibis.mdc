@@ -18,7 +18,7 @@ See the following API documentation for reference:
 
 - [Selectors API](https://ibis-project.org/reference/selectors)
 
-  - Selectors provide a powerful way to choose columns based on their name, data type, or regular expressions. They are used within other table expressions like `select` and `mutate` to programmatically apply operations to multiple columns at once. This avoids repetitive code and makes data wrangling more maintainable.
+  - Selectors provide a powerful way to choose columns based on their name, data type, or regular expressions. They are used within other table expressions like `select` and `mutate` to programmatically apply operations to multiple columns at once. This avoids repetitive code and makes data wrangling more maintainable. Also see [this blog post](https://ibis-project.org/posts/selectors/) for additional informative examples.
 
 - [Generic expressions API](https://ibis-project.org/reference/expression-generic)
 
