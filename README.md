@@ -1,6 +1,6 @@
 # llmsrules
 
-This is a repo for storing the dotfiles I use for various LLM based agents (Cursor, Goose, etc). Each agent seems to take a slightly different format; each provider has a separate folder here. I treat this kind of like notes when I'm reading over a new API, so it's multipurpose.
+This is a repo for storing the dotfiles I use for various LLM based agents (Cursor, Claude, Goose, etc). Each agent seems to take a slightly different format; each provider has a separate folder here. I treat this kind of like notes when I'm reading over a new API, so it's multipurpose.
 
 The `.cursorrules` is the prototypical example. Cursor-specific rules live under `.cursor/rules/` and use `.mdc` files with front‑matter (description, globs, alwaysApply) plus guidance content.
 
@@ -26,3 +26,8 @@ Rules are additive: keep focused guidance per rule (e.g., server, CLI, data scie
 - Keep rules small and purpose-built; prefer multiple focused `.mdc` files over a single monolith.
 - Use clear `description` text and conservative `globs`.
 - Where relevant, include minimal quickstart snippets and env var names expected by the code (e.g., `AUTH_SECRET` for FastAPI auth).
+
+## Using these rules in a project (Claude)
+
+1. `cat` or copy or reference snippets from the files under `claude/` into your project’s `CLAUDE.md` file.
+2. Tweak the file to your project's needs.
