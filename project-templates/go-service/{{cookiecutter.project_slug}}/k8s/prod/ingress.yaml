@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{cookiecutter.project_slug}}
+  namespace: {{cookiecutter.k8s_namespace}}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: {{cookiecutter.project_slug}}.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{cookiecutter.project_slug}}
+                port:
+                  number: 80

@@ -1,0 +1,25 @@
+# Binaries
+bin/
+*.exe
+
+# Build artifacts
+tmp/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Development
+logs/
+!logs/.gitkeep
+data/
+!data/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
