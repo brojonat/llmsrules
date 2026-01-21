@@ -1,5 +1,4 @@
 from fastapi.testclient import TestClient
-
 from server.main import app
 
 client = TestClient(app)
@@ -13,4 +12,5 @@ def test_healthz():
 
 def test_whoami_unauthorized():
     response = client.get("/whoami")
-    assert response.status_code == 403
+    # HTTPBearer returns 401 when no credentials provided
+    assert response.status_code == 401

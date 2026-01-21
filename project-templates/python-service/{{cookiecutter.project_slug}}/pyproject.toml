@@ -40,7 +40,7 @@ src = ["src", "server", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-ignore = ["E203", "W503"]
+ignore = ["E203"]
 
 [tool.ruff.format]
 quote-style = "double"

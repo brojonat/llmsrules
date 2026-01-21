@@ -12,8 +12,8 @@ Usage:
 
 import click
 
-from .foo.commands import cli as foo
 from .bar.commands import cli as bar
+from .foo.commands import cli as foo
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
