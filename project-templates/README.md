@@ -6,10 +6,12 @@ across repositories.
 ## For Agents
 
 This README contains everything needed to implement the cookiecutter templates.
-Start with the `go-service` template, then `python-service`. For each template:
+For each template:
 
-1. Create the directory structure shown in [Directory Structure](#directory-structure)
-2. Implement files using patterns from [Implementation Reference](#implementation-reference)
+1. Create the directory structure shown in
+   [Directory Structure](#directory-structure)
+2. Implement files using patterns from
+   [Implementation Reference](#implementation-reference)
 3. Use the template variables from [Template Variables](#template-variables)
 4. Test by running `cookiecutter path/to/template` and verifying the output
 
@@ -188,13 +190,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
 ### Changed
+
 ### Fixed
+
 ### Removed
 
 ## [0.1.0] - YYYY-MM-DD
 
 ### Added
+
 - Initial release
 ```
 
@@ -308,16 +314,16 @@ cookiecutter path/to/project-templates/python-service
 
 ### Go-specific Variables
 
-| Variable | Description            | Example |
-| -------- | ---------------------- | ------- |
-| `go_mod` | Go module path         | "github.com/user/repo" |
+| Variable | Description    | Example                |
+| -------- | -------------- | ---------------------- |
+| `go_mod` | Go module path | "github.com/user/repo" |
 
 ### Python-specific Variables
 
-| Variable       | Description        | Example       |
-| -------------- | ------------------ | ------------- |
-| `package_name` | Python package name | "my_service" |
-| `python_version` | Python version   | "3.13"        |
+| Variable         | Description         | Example      |
+| ---------------- | ------------------- | ------------ |
+| `package_name`   | Python package name | "my_service" |
+| `python_version` | Python version      | "3.13"       |
 
 ## Implementation Reference
 
@@ -751,19 +757,19 @@ resources:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{cookiecutter.project_slug}}
+  name: { { cookiecutter.project_slug } }
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: {{cookiecutter.project_slug}}
+      app: { { cookiecutter.project_slug } }
   template:
     metadata:
       labels:
-        app: {{cookiecutter.project_slug}}
+        app: { { cookiecutter.project_slug } }
     spec:
       containers:
-        - name: {{cookiecutter.project_slug}}
+        - name: { { cookiecutter.project_slug } }
           image: "{{DOCKER_REPO}}:{{GIT_COMMIT_SHA}}"
           ports:
             - containerPort: 8080
@@ -919,20 +925,20 @@ clean_on_exit = true
 
 ### AGENTS.md Template
 
-```markdown
+````markdown
 # {{cookiecutter.project_name}}
 
 {{cookiecutter.description}}
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
+| Task           | Command        |
+| -------------- | -------------- |
 | Run dev server | `make run-dev` |
-| Run tests | `make test` |
-| Run linter | `make lint` |
-| Build | `make build` |
-| Deploy | `make deploy` |
+| Run tests      | `make test`    |
+| Run linter     | `make lint`    |
+| Build          | `make build`   |
+| Deploy         | `make deploy`  |
 
 ## Logs
 
@@ -942,6 +948,7 @@ Dev server logs to `logs/server.log`. View with:
 tail -f logs/server.log
 jq 'select(.level == "ERROR")' logs/server.log
 ```
+````
 
 ## Architecture
 
@@ -951,7 +958,8 @@ jq 'select(.level == "ERROR")' logs/server.log
 
 ## Conventions
 
-- Handlers are functions returning `http.Handler` (Go) or FastAPI routes (Python)
+- Handlers are functions returning `http.Handler` (Go) or FastAPI routes
+  (Python)
 - All dependencies passed explicitly (no globals)
 - Structured JSON logging via slog/structlog
 - JWT auth via Bearer token
@@ -965,7 +973,8 @@ When merging features, update `CHANGELOG.md`:
 3. Reference issue numbers if applicable
 
 Categories: Added, Changed, Deprecated, Removed, Fixed, Security
-```
+
+````
 
 ### cookiecutter.json
 
@@ -981,7 +990,7 @@ Categories: Added, Changed, Deprecated, Removed, Fixed, Security
   "docker_registry": "ghcr.io/{{ cookiecutter.author.lower().replace(' ', '') }}",
   "k8s_namespace": "default"
 }
-```
+````
 
 #### python-service
 
@@ -1038,7 +1047,7 @@ make run-dev  # Should start server and log to logs/server.log
   - [ ] Click CLI scaffold
   - [ ] pyproject.toml with ruff/pytest config
   - [ ] K8s manifests with kustomize
-  - [ ] .gitignore (logs/, data/, .env files, __pycache__, .venv)
+  - [ ] .gitignore (logs/, data/, .env files, **pycache**, .venv)
   - [ ] AGENTS.md (with changelog instructions)
   - [ ] CHANGELOG.md
 - [ ] Add GitHub Actions workflow templates

@@ -50,6 +50,6 @@ deploy: ## Build, push, and deploy to Kubernetes
 	docker build -t $(DOCKER_REGISTRY)/{{cookiecutter.project_slug}}:$(GIT_HASH) .
 	docker push $(DOCKER_REGISTRY)/{{cookiecutter.project_slug}}:$(GIT_HASH)
 	kustomize build k8s/prod | \
-		sed -e "s;{{DOCKER_REPO}};$(DOCKER_REGISTRY)/{{cookiecutter.project_slug}};g" \
-		    -e "s;{{GIT_COMMIT_SHA}};$(GIT_HASH);g" | \
+		sed -e "s;{% raw %}{{DOCKER_REPO}}{% endraw %};$(DOCKER_REGISTRY)/{{cookiecutter.project_slug}};g" \
+		    -e "s;{% raw %}{{GIT_COMMIT_SHA}}{% endraw %};$(GIT_HASH);g" | \
 		kubectl apply -f -
