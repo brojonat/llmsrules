@@ -20,17 +20,16 @@ but in the end my poor hands were not up to the task of writing all the
 necessary {{ template }} code that would be necessary to realize my vision.
 
 Today, things are different. Now we have agents. A lot of people are focusing on
-writing markdown files, for their Rules, Skills, etc., and that's all well and
-good. Remember though, all you want some boilerplate code laying out your
-project. Instead of trying to prompt and coax your agent into writing something
-that _mostly somewhat closely resembles_ the end product you want and then
-having to clean it up after the fact, just give it a template of the thing!
+writing markdown files for their Rules, Skills, etc., and that's all well and
+good and certainly has it's place. Remember though, I'm just after some
+boilerplate code for laying out some projects. Instead of trying to prompt and
+coax an agent into writing something that _mostly somewhat closely resembles_
+the end product I want and then having to perform tedious tweaking after the
+fact, I can just give it a template of the thing!
 
-So, instead of having your agent write style guidelines, just spend a few hours
-and have an agent hammer out templates of your boilerplate project styles and be
-done with it.
-
-Here's the main selling points:
+So, instead of having an agent write style guidelines, I've just spent that time
+having an agent hammer out templates of my boilerplate project styles. Here's
+the main selling points:
 
 - Zero cost, immediate project bootstrapping.
 - Same patterns and entry points across all your projects.
@@ -43,13 +42,14 @@ like to structure my projects.
 
 ## Templates
 
-| Template | Description | Key Features |
-|----------|-------------|--------------|
-| `go-service` | Go microservice | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload |
-| `python-service` | Python microservice | FastAPI, Click CLI, uv, structlog, Prometheus metrics |
-| `python-cli` | Python CLI tool | PEP 723 simple script + structured package with subcommands |
+| Template         | Description         | Key Features                                                 |
+| ---------------- | ------------------- | ------------------------------------------------------------ |
+| `go-service`     | Go microservice     | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload |
+| `python-service` | Python microservice | FastAPI, Click CLI, uv, structlog, Prometheus metrics        |
+| `python-cli`     | Python CLI tool     | PEP 723 simple script + structured package with subcommands  |
 
-All templates include: Makefile, Dockerfile, K8s manifests, `.gitignore`, `AGENTS.md`, `CHANGELOG.md`.
+All templates include: Makefile, Dockerfile, K8s manifests, `.gitignore`,
+`AGENTS.md`, `CHANGELOG.md`.
 
 ```bash
 # Install cookiecutter
@@ -64,4 +64,5 @@ cookiecutter project-templates/python-cli
 ./project-templates/test-templates.py validate
 ```
 
-See [`project-templates/README.md`](project-templates/README.md) for full documentation.
+See [`project-templates/README.md`](project-templates/README.md) for full
+documentation.
