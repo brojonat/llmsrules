@@ -54,7 +54,7 @@ These templates encode specific opinions about how software should be built:
 - Health check endpoints
 - Graceful shutdown handling
 
-## Planned Templates
+## Available Templates
 
 ### go-service
 
@@ -67,16 +67,58 @@ Go microservice following stdlib patterns:
 - Structured logging with `slog`
 - Air for hot reloading in development
 
+```bash
+cookiecutter path/to/project-templates/go-service
+cd my-service
+make build && ./bin/my-service --help
+make run-dev  # Hot reload with logs to logs/server.log
+```
+
 ### python-service
 
 Python service with modern tooling:
 
-- FastAPI server with lifespan management
+- FastAPI server with lifespan management and JWT auth
 - Click CLI with subcommand structure
 - `uv` for dependency management
 - `structlog` for structured logging
 - `src` layout for clean editable installs
 - Ruff for linting/formatting
+- Prometheus metrics via `prometheus-fastapi-instrumentator`
+
+```bash
+cookiecutter path/to/project-templates/python-service
+cd my-service
+uv sync --all-extras
+make test && make lint
+make run-dev  # Hot reload with logs to logs/server.log
+```
+
+### python-cli
+
+Python CLI tool with two patterns:
+
+1. **Simple PEP 723 script** - Single-file CLI with inline dependencies, no install needed
+2. **Structured package** - Multi-module CLI with subcommand groups
+
+- `uv` for dependency management
+- Click for CLI framework
+- Ruff for linting/formatting
+- `src` layout for the structured CLI
+
+```bash
+cookiecutter path/to/project-templates/python-cli
+cd my-cli
+
+# Simple script (no install, uv handles deps)
+./simple.py --help
+./simple.py hello --name World
+
+# Structured CLI
+uv sync --all-extras
+uv run my-cli --help
+uv run my-cli foo do-something
+```
 
 ## Shared Components
 
@@ -262,28 +304,52 @@ project-templates/
 │       │   └── .gitkeep
 │       └── data/                     # gitignored - local data
 │           └── .gitkeep
-└── python-service/
+├── python-service/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore
+│       ├── AGENTS.md
+│       ├── CHANGELOG.md
+│       ├── Makefile
+│       ├── Dockerfile
+│       ├── pyproject.toml
+│       ├── .env.example
+│       ├── src/
+│       │   └── {{cookiecutter.package_name}}/
+│       │       ├── __init__.py
+│       │       └── cli.py
+│       ├── server/
+│       │   └── main.py
+│       ├── tests/
+│       │   └── test_server.py
+│       ├── k8s/
+│       │   └── prod/
+│       ├── logs/                     # gitignored - dev logs
+│       │   └── .gitkeep
+│       └── data/                     # gitignored - local data
+│           └── .gitkeep
+└── python-cli/
     ├── cookiecutter.json
+    ├── hooks/
+    │   └── post_gen_project.py       # Sets chmod +x on simple.py
     └── {{cookiecutter.project_slug}}/
         ├── .gitignore
-        ├── AGENTS.md
-        ├── CHANGELOG.md
         ├── Makefile
-        ├── Dockerfile
         ├── pyproject.toml
-        ├── .env.example
+        ├── README.md
+        ├── simple.py                 # PEP 723 standalone script
         ├── src/
         │   └── {{cookiecutter.package_name}}/
         │       ├── __init__.py
-        │       └── cli.py
-        ├── server/
-        │   └── main.py
-        ├── k8s/
-        │   └── prod/
-        ├── logs/                     # gitignored - dev logs
-        │   └── .gitkeep
-        └── data/                     # gitignored - local data
-            └── .gitkeep
+        │       ├── cli.py            # Main CLI entrypoint
+        │       ├── foo/
+        │       │   ├── __init__.py
+        │       │   └── commands.py   # Foo subcommand group
+        │       └── bar/
+        │           ├── __init__.py
+        │           └── commands.py   # Bar subcommand group
+        └── tests/
+            └── test_cli.py
 ```
 
 ## Usage
@@ -1007,48 +1073,108 @@ Categories: Added, Changed, Deprecated, Removed, Fixed, Security
 }
 ```
 
+#### python-cli
+
+```json
+{
+  "project_name": "My CLI",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
+  "package_name": "{{ cookiecutter.project_slug.replace('-', '_') }}",
+  "description": "A Python CLI tool",
+  "author": "Your Name",
+  "python_version": "3.13"
+}
+```
+
 ## Testing Templates
 
-After implementing a template, verify it works:
+Use the `test-templates.py` script to validate all templates:
+
+```bash
+# Validate all templates (generates + runs tests)
+./test-templates.py validate
+
+# Validate a specific template
+./test-templates.py validate --only go
+./test-templates.py validate --only python
+./test-templates.py validate --only cli
+
+# Just generate without validation
+./test-templates.py generate
+
+# Clean up test output
+./test-templates.py clean
+
+# Show entry points reference
+./test-templates.py show
+```
+
+The validation script tests:
+
+| Template         | Tests                                                                 |
+| ---------------- | --------------------------------------------------------------------- |
+| `go-service`     | `make help`, `go mod tidy`, `make build`, CLI `--help`, server `/healthz` |
+| `python-service` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, server `/healthz` |
+| `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
+
+### Manual Testing
 
 ```bash
 # Test go-service template
-cookiecutter go-service --no-input project_name="Test Service" project_slug="test-service"
+cookiecutter go-service --no-input project_name="Test Service"
 cd test-service
-make build    # Should compile
-make test     # Should pass
-make run-dev  # Should start server and log to logs/server.log
+make build && ./bin/test-service --help
+make run-dev  # Logs to logs/server.log
 
 # Test python-service template
-cookiecutter python-service --no-input project_name="Test Service" project_slug="test-service"
+cookiecutter python-service --no-input project_name="Test Service"
 cd test-service
-uv sync       # Should install deps
-make test     # Should pass
-make run-dev  # Should start server and log to logs/server.log
+uv sync --all-extras
+make test && make lint
+make run-dev  # Logs to logs/server.log
+
+# Test python-cli template
+cookiecutter python-cli --no-input project_name="Test CLI"
+cd test-cli
+./simple.py hello --name World  # PEP 723 script
+uv sync --all-extras
+uv run test-cli foo do-something
 ```
 
 ## TODO
 
-- [ ] Define cookiecutter.json schema for each template
-- [ ] Create go-service template
-  - [ ] Makefile with standard targets (tee to logs/)
-  - [ ] Multi-stage Dockerfile
-  - [ ] HTTP server with handler pattern
-  - [ ] sqlc configuration
-  - [ ] Air hot reload config
-  - [ ] K8s manifests with kustomize
-  - [ ] .gitignore (logs/, data/, .env files, binaries)
-  - [ ] AGENTS.md (with changelog instructions)
-  - [ ] CHANGELOG.md
-- [ ] Create python-service template
-  - [ ] Makefile with standard targets (tee to logs/)
-  - [ ] Multi-stage Dockerfile
-  - [ ] FastAPI server with JWT auth
-  - [ ] Click CLI scaffold
-  - [ ] pyproject.toml with ruff/pytest config
-  - [ ] K8s manifests with kustomize
-  - [ ] .gitignore (logs/, data/, .env files, **pycache**, .venv)
-  - [ ] AGENTS.md (with changelog instructions)
-  - [ ] CHANGELOG.md
+### Completed
+
+- [x] Create go-service template
+  - [x] Makefile with standard targets (tee to logs/)
+  - [x] Multi-stage Dockerfile
+  - [x] HTTP server with handler pattern
+  - [x] sqlc configuration
+  - [x] Air hot reload config
+  - [x] K8s manifests with kustomize
+  - [x] .gitignore (logs/, data/, .env files, binaries)
+  - [x] AGENTS.md (with changelog instructions)
+  - [x] CHANGELOG.md
+- [x] Create python-service template
+  - [x] Makefile with standard targets (tee to logs/)
+  - [x] Multi-stage Dockerfile
+  - [x] FastAPI server with JWT auth
+  - [x] Click CLI scaffold
+  - [x] pyproject.toml with ruff/pytest config
+  - [x] K8s manifests with kustomize
+  - [x] .gitignore (logs/, data/, .env files, \_\_pycache\_\_, .venv)
+  - [x] AGENTS.md (with changelog instructions)
+  - [x] CHANGELOG.md
+- [x] Create python-cli template
+  - [x] Simple PEP 723 script with uv shebang
+  - [x] Structured CLI with subcommand modules
+  - [x] Makefile with standard targets
+  - [x] pyproject.toml with ruff/pytest config
+  - [x] Tests for CLI commands
+- [x] Add test-templates.py validation script
+
+### Remaining
+
 - [ ] Add GitHub Actions workflow templates
 - [ ] Add pre-commit hook configurations
+- [ ] Add database migration examples (Go: golang-migrate, Python: alembic)
