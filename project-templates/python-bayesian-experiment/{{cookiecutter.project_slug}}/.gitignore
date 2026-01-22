@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Ruff
+.ruff_cache/
+
+# Environment files (keep .example files)
+.env
+.env.*
+!.env.*.example
+
+# Logs
+logs/
+*.log
+
+# Data (keep .gitkeep)
+data/
+!data/.gitkeep
+
+# MLflow
+mlruns/
+mlflow.db
+mlartifacts/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# PyMC/ArviZ
+*.nc
+*.netcdf

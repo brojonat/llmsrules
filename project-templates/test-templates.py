@@ -51,6 +51,11 @@ TEMPLATES = {
         "output": "test-cli",
         "vars": {"project_name": "Test CLI", "author": "testuser"},
     },
+    "bayesian": {
+        "name": "python-bayesian-experiment",
+        "output": "test-bayesian",
+        "vars": {"project_name": "Test Bayesian", "author": "testuser"},
+    },
 }
 
 
@@ -280,10 +285,61 @@ def validate_python_cli(project_dir: Path) -> None:
     success("python-cli validation complete")
 
 
+def validate_bayesian(project_dir: Path) -> None:
+    """Validate python-bayesian-experiment template."""
+    section("Validating python-bayesian-experiment")
+
+    run_with_output("make help", cwd=project_dir)
+    success("make help works")
+
+    run_with_output(["uv", "sync", "--all-extras"], cwd=project_dir)
+    success("uv sync --all-extras works")
+
+    run_with_output(["uv", "run", "test-bayesian", "--help"], cwd=project_dir)
+    success("CLI --help works")
+
+    run_with_output(["uv", "run", "test-bayesian", "experiments", "--help"], cwd=project_dir)
+    success("CLI experiments --help works")
+
+    run_with_output("make test", cwd=project_dir)
+    success("make test works")
+
+    run_with_output("make lint", cwd=project_dir)
+    success("make lint works")
+
+    # Brief server test
+    log("Starting server briefly...")
+    server = subprocess.Popen(
+        ["uv", "run", "uvicorn", "test_bayesian.server.main:app", "--host", "0.0.0.0", "--port", "18001"],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(3)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18001/healthz"],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            success("Server responds to /healthz")
+        else:
+            warn("Server health check failed")
+    except Exception:
+        warn("Server health check failed")
+    finally:
+        server.terminate()
+        server.wait()
+
+    success("python-bayesian-experiment validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
     "cli": validate_python_cli,
+    "bayesian": validate_bayesian,
 }
 
 
@@ -299,7 +355,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -315,7 +371,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -372,6 +428,16 @@ def show() -> None:
     click.echo("  uv sync --all-extras")
     click.echo("  uv run <name> --help")
     click.echo("  uv run <name> foo do-something")
+    click.echo("  make test")
+    click.echo()
+
+    click.echo(f"{BLUE}python-bayesian-experiment:{NC}")
+    click.echo("  make help          # Show targets")
+    click.echo("  uv sync --all-extras")
+    click.echo("  make run-server    # Run API server")
+    click.echo("  make run-mlflow    # Run MLflow UI")
+    click.echo("  make start-dev     # Start tmux dev session")
+    click.echo("  uv run <name> experiments list")
     click.echo("  make test")
 
 

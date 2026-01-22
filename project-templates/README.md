@@ -120,6 +120,34 @@ uv run my-cli --help
 uv run my-cli foo do-something
 ```
 
+### python-bayesian-experiment
+
+Bayesian experimentation platform with PyMC:
+
+- PyMC for Bayesian inference with ArviZ for diagnostics
+- MLflow for experiment tracking (via docker-compose)
+- FastAPI server for experiment management API
+- Click CLI for experiment operations
+- DuckDB/Ibis for data storage
+- `structlog` for structured logging
+- tmux-based dev session management
+
+```bash
+cookiecutter path/to/project-templates/python-bayesian-experiment
+cd my-experiment
+
+# Install dependencies
+uv sync --all-extras
+
+# Start dev session (API server + MLflow UI in tmux)
+make start-dev
+
+# CLI commands
+uv run my-experiment experiments list
+uv run my-experiment experiments create --name click-rate --type bernoulli
+uv run my-experiment experiments posterior --name click-rate
+```
+
 ## Shared Components
 
 Each template includes standardized versions of:
@@ -328,28 +356,56 @@ project-templates/
 │       │   └── .gitkeep
 │       └── data/                     # gitignored - local data
 │           └── .gitkeep
-└── python-cli/
+├── python-cli/
+│   ├── cookiecutter.json
+│   ├── hooks/
+│   │   └── post_gen_project.py       # Sets chmod +x on simple.py
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore
+│       ├── Makefile
+│       ├── pyproject.toml
+│       ├── README.md
+│       ├── simple.py                 # PEP 723 standalone script
+│       ├── src/
+│       │   └── {{cookiecutter.package_name}}/
+│       │       ├── __init__.py
+│       │       ├── cli.py            # Main CLI entrypoint
+│       │       ├── foo/
+│       │       │   ├── __init__.py
+│       │       │   └── commands.py   # Foo subcommand group
+│       │       └── bar/
+│       │           ├── __init__.py
+│       │           └── commands.py   # Bar subcommand group
+│       └── tests/
+│           └── test_cli.py
+└── python-bayesian-experiment/
     ├── cookiecutter.json
-    ├── hooks/
-    │   └── post_gen_project.py       # Sets chmod +x on simple.py
     └── {{cookiecutter.project_slug}}/
         ├── .gitignore
+        ├── AGENTS.md
         ├── Makefile
-        ├── pyproject.toml
         ├── README.md
-        ├── simple.py                 # PEP 723 standalone script
+        ├── docker-compose.yaml       # MLflow + MinIO services
+        ├── pyproject.toml
         ├── src/
         │   └── {{cookiecutter.package_name}}/
         │       ├── __init__.py
-        │       ├── cli.py            # Main CLI entrypoint
-        │       ├── foo/
-        │       │   ├── __init__.py
-        │       │   └── commands.py   # Foo subcommand group
-        │       └── bar/
-        │           ├── __init__.py
-        │           └── commands.py   # Bar subcommand group
-        └── tests/
-            └── test_cli.py
+        │       ├── cli/              # Click CLI commands
+        │       │   ├── main.py
+        │       │   └── experiments.py
+        │       ├── server/           # FastAPI server
+        │       │   ├── main.py
+        │       │   └── routers/
+        │       ├── models/           # PyMC Bayesian models
+        │       │   └── bernoulli.py
+        │       ├── db/               # Data storage
+        │       │   └── store.py
+        │       └── schemas.py
+        ├── tests/
+        ├── data/                     # gitignored - local data
+        │   └── .gitkeep
+        └── logs/                     # gitignored - dev logs
+            └── .gitkeep
 ```
 
 ## Usage
@@ -1098,6 +1154,7 @@ Use the `test-templates.py` script to validate all templates:
 ./test-templates.py validate --only go
 ./test-templates.py validate --only python
 ./test-templates.py validate --only cli
+./test-templates.py validate --only bayesian
 
 # Just generate without validation
 ./test-templates.py generate
@@ -1116,6 +1173,7 @@ The validation script tests:
 | `go-service`     | `make help`, `go mod tidy`, `make build`, CLI `--help`, server `/healthz` |
 | `python-service` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, server `/healthz` |
 | `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
+| `python-bayesian-experiment` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, `experiments --help`, server `/healthz` |
 
 ### Manual Testing
 
@@ -1171,6 +1229,14 @@ uv run test-cli foo do-something
   - [x] Makefile with standard targets
   - [x] pyproject.toml with ruff/pytest config
   - [x] Tests for CLI commands
+- [x] Create python-bayesian-experiment template
+  - [x] PyMC models with ArviZ inference
+  - [x] FastAPI server for experiment management
+  - [x] Click CLI for experiment operations
+  - [x] MLflow integration via docker-compose
+  - [x] DuckDB/Ibis for data storage
+  - [x] tmux dev session management
+  - [x] Tests for server endpoints
 - [x] Add test-templates.py validation script
 
 ### Remaining
