@@ -40,3 +40,28 @@ Here's the main selling points:
 
 That's what's in the `project-templates` directory: starter templates for how I
 like to structure my projects.
+
+## Templates
+
+| Template | Description | Key Features |
+|----------|-------------|--------------|
+| `go-service` | Go microservice | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload |
+| `python-service` | Python microservice | FastAPI, Click CLI, uv, structlog, Prometheus metrics |
+| `python-cli` | Python CLI tool | PEP 723 simple script + structured package with subcommands |
+
+All templates include: Makefile, Dockerfile, K8s manifests, `.gitignore`, `AGENTS.md`, `CHANGELOG.md`.
+
+```bash
+# Install cookiecutter
+uv tool install cookiecutter
+
+# Create a project
+cookiecutter project-templates/go-service
+cookiecutter project-templates/python-service
+cookiecutter project-templates/python-cli
+
+# Validate templates
+./project-templates/test-templates.py validate
+```
+
+See [`project-templates/README.md`](project-templates/README.md) for full documentation.
