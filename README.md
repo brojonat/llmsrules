@@ -1,33 +1,42 @@
 # llmsrules
 
-This is a repo for storing the dotfiles I use for various LLM based agents (Cursor, Claude, Goose, etc). Each agent seems to take a slightly different format; each provider has a separate folder here. I treat this kind of like notes when I'm reading over a new API, so it's multipurpose.
+This started as a repo for storing the dotfiles I use for various LLM based
+agents (Cursor, Claude, Goose, etc). Each agent seems to take a slightly
+different format, so each provider has a separate folder here. I'll typically
+use an agent to port the documents from one provider to another.
 
-The `.cursorrules` is the prototypical example. Cursor-specific rules live under `.cursor/rules/` and use `.mdc` files with front‑matter (description, globs, alwaysApply) plus guidance content.
+The `.cursorrules` is the prototypical example. Cursor-specific rules live under
+`.cursor/rules/` and use `.mdc` files with front‑matter (description, globs,
+alwaysApply) plus guidance content. This format differs from the vanilla `.md`
+and Skills files I have in the Claude directory. You get the idea.
 
-## What’s here
+However, I quickly realized I was going about this all wrong. See, about a
+decade ago I had this dream of having a library of project templates that I
+could use to bootstrap new projects and get cracking in the blink of an eye. I
+think it might have been @tiangolo's
+[full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template)
+that awared me on [Cookiecutter](https://github.com/cookiecutter/cookiecutter),
+but in the end my poor hands were not up to the task of writing all the
+necessary {{ template }} code that would be necessary to realize my vision.
 
-- Cursor rules: [`.cursor/rules/`](.cursor/rules)
-  - [`fastapi.mdc`](.cursor/rules/fastapi.mdc): Minimal FastAPI server with JWT auth, Prometheus, and structlog
-  - [`project-layout.mdc`](.cursor/rules/project-layout.mdc): Opinionated project skeleton (CLI, server, notebooks, assets)
-  - [`python-cli.mdc`](.cursor/rules/python-cli.mdc): Scaffold and structure Python Click CLIs
-  - [`pyproject.mdc`](.cursor/rules/pyproject.mdc): What to include in `pyproject.toml` (scripts, ruff, pytest, src layout)
-  - [`scikit-learn.mdc`](.cursor/rules/scikit-learn.mdc): Practical sklearn pipelines, tuning, metrics, persistence, MLflow
+Today, things are different. Now we have agents. A lot of people are focusing on
+writing markdown files, for their Rules, Skills, etc., and that's all well and
+good. Remember though, all you want some boilerplate code laying out your
+project. Instead of trying to prompt and coax your agent into writing something
+that _mostly somewhat closely resembles_ the end product you want and then
+having to clean it up after the fact, just give it a template of the thing!
 
-## Using these rules in a project (Cursor)
+So, instead of having your agent write style guidelines, just spend a few hours
+and have an agent hammer out templates of your boilerplate project styles and be
+done with it.
 
-1. Copy or reference the files under `.cursor/rules/` into your project’s `.cursor/rules/` directory.
-2. Adjust each rule’s `globs` to match the files you want it to apply to. Most Python rules here already target `**/*.py` (and notebooks where relevant).
-3. Leave `alwaysApply: false` unless you want a rule to be applied all the time.
+Here's the main selling points:
 
-Rules are additive: keep focused guidance per rule (e.g., server, CLI, data science) and let Cursor use the glob patterns to surface the right guidance at the right time.
+- Zero cost, immediate project bootstrapping.
+- Same patterns and entry points across all your projects.
+- Templates are deterministic; no subtle differences based on the whims of the
+  agent.
+- Templates play nicely with version control.
 
-## Conventions
-
-- Keep rules small and purpose-built; prefer multiple focused `.mdc` files over a single monolith.
-- Use clear `description` text and conservative `globs`.
-- Where relevant, include minimal quickstart snippets and env var names expected by the code (e.g., `AUTH_SECRET` for FastAPI auth).
-
-## Using these rules in a project (Claude)
-
-1. `cat` or copy or reference snippets from the files under `claude/` into your project’s `CLAUDE.md` file.
-2. Tweak the file to your project's needs.
+That's what's in the `project-templates` directory: starter templates for how I
+like to structure my projects.
