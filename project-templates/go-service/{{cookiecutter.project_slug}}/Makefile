@@ -23,15 +23,26 @@ lint: ## Run linter
 	golangci-lint run
 
 .PHONY: run-dev
-run-dev: ## Run with hot reload (logs to logs/)
+run-dev: ## Run server with hot reload (logs to logs/)
 	@mkdir -p logs
 	$(call setup_env, .env.server)
-	air 2>&1 | tee logs/server.log
+	air -c .air.toml 2>&1 | tee logs/server.log
 
 .PHONY: run
-run: build ## Run production binary
+run: build ## Run production server
 	$(call setup_env, .env.server)
-	./bin/{{cookiecutter.project_slug}}
+	./bin/{{cookiecutter.project_slug}} server
+
+.PHONY: run-worker-dev
+run-worker-dev: ## Run worker with hot reload (logs to logs/)
+	@mkdir -p logs
+	$(call setup_env, .env.worker)
+	air -c .air.worker.toml 2>&1 | tee logs/worker.log
+
+.PHONY: run-worker
+run-worker: build ## Run production worker
+	$(call setup_env, .env.worker)
+	./bin/{{cookiecutter.project_slug}} worker
 
 .PHONY: clean
 clean: ## Clean build artifacts
@@ -46,8 +57,8 @@ migrate: ## Run database migrations
 	$(call setup_env, .env.server)
 	migrate -path migrations -database "$$DATABASE_URL" up
 
-.PHONY: deploy
-deploy: ## Build, push, and deploy to Kubernetes
+.PHONY: deploy-server
+deploy-server: ## Deploy server to Kubernetes
 	$(call setup_env, .env.prod)
 	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
 	docker build -t $(DOCKER_REGISTRY)/{{cookiecutter.project_slug}}:$(GIT_HASH) .
@@ -56,3 +67,25 @@ deploy: ## Build, push, and deploy to Kubernetes
 		sed -e "s;{% raw %}{{DOCKER_REPO}}{% endraw %};$(DOCKER_REGISTRY)/{{cookiecutter.project_slug}};g" \
 		    -e "s;{% raw %}{{GIT_COMMIT_SHA}}{% endraw %};$(GIT_HASH);g" | \
 		kubectl apply -f -
+
+.PHONY: deploy-worker
+deploy-worker: ## Deploy worker to Kubernetes
+	$(call setup_env, .env.prod)
+	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
+	docker build -t $(DOCKER_REGISTRY)/{{cookiecutter.project_slug}}:$(GIT_HASH) .
+	docker push $(DOCKER_REGISTRY)/{{cookiecutter.project_slug}}:$(GIT_HASH)
+	kustomize build worker/k8s/prod | \
+		sed -e "s;{% raw %}{{DOCKER_REPO}}{% endraw %};$(DOCKER_REGISTRY)/{{cookiecutter.project_slug}};g" \
+		    -e "s;{% raw %}{{GIT_COMMIT_SHA}}{% endraw %};$(GIT_HASH);g" | \
+		kubectl apply -f -
+
+.PHONY: deploy
+deploy: deploy-server deploy-worker ## Deploy server and worker to Kubernetes
+
+.PHONY: logs-server
+logs-server: ## Tail server logs
+	kubectl logs -f deployment/{{cookiecutter.project_slug}}
+
+.PHONY: logs-worker
+logs-worker: ## Tail worker logs
+	kubectl logs -f deployment/{{cookiecutter.project_slug}}-worker

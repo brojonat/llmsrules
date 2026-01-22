@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"{{cookiecutter.go_mod}}/worker"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -44,6 +46,37 @@ func main() {
 					},
 				},
 				Action: runServer,
+			},
+			{
+				Name:  "worker",
+				Usage: "Start the Temporal worker",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "temporal-address",
+						Value:   "localhost:7233",
+						EnvVars: []string{"TEMPORAL_ADDRESS"},
+					},
+					&cli.StringFlag{
+						Name:    "temporal-namespace",
+						Value:   "default",
+						EnvVars: []string{"TEMPORAL_NAMESPACE"},
+					},
+					&cli.StringFlag{
+						Name:    "task-queue",
+						Value:   "{{cookiecutter.project_slug}}",
+						EnvVars: []string{"TEMPORAL_TASK_QUEUE"},
+					},
+					&cli.StringFlag{
+						Name:    "log-level",
+						Value:   "warn",
+						EnvVars: []string{"LOG_LEVEL"},
+					},
+					&cli.BoolFlag{
+						Name:  "check-connection",
+						Usage: "Check Temporal connection and exit (for health checks)",
+					},
+				},
+				Action: runWorker,
 			},
 		},
 	}
@@ -109,6 +142,22 @@ func runServer(c *cli.Context) error {
 
 	logger.Info("server stopped")
 	return nil
+}
+
+func runWorker(c *cli.Context) error {
+	logger := setupLogger(c.String("log-level"))
+	temporalAddr := c.String("temporal-address")
+	namespace := c.String("temporal-namespace")
+	taskQueue := c.String("task-queue")
+
+	ctx := context.Background()
+
+	// Health check mode
+	if c.Bool("check-connection") {
+		return worker.CheckConnection(ctx, logger, temporalAddr, namespace)
+	}
+
+	return worker.RunWorker(ctx, logger, temporalAddr, namespace, taskQueue)
 }
 
 // Logging setup
