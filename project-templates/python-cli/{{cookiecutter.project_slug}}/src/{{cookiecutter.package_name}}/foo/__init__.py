@@ -1,0 +1,1 @@
+"""Foo subcommand group."""

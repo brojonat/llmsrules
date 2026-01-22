@@ -1,0 +1,9 @@
+{
+  "project_name": "My Service",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
+  "description": "A Go microservice",
+  "author": "Your Name",
+  "go_mod": "github.com/{{ cookiecutter.author.lower().replace(' ', '') }}/{{ cookiecutter.project_slug }}",
+  "docker_registry": "ghcr.io/{{ cookiecutter.author.lower().replace(' ', '') }}",
+  "k8s_namespace": "default"
+}
