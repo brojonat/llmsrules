@@ -5,101 +5,69 @@ description: Analyze parquet files using Python and Ibis. Use when the user want
 
 # Parquet Analysis with Python and Ibis
 
-This skill helps you analyze parquet files using [Ibis](https://ibis-project.org), a database-agnostic Python DataFrame API. Ibis translates Python operations into optimized queries for the underlying backend (DuckDB by default for parquet files).
+Analyze parquet files using [Ibis](https://ibis-project.org), a database-agnostic Python DataFrame API. Ibis translates Python operations into optimized queries for the underlying backend (DuckDB by default for parquet files).
 
 ## Quick Start
 
-### Read and explore a parquet file
+### Basic workflow
 
 ```python
 import ibis
 
-# Connect to DuckDB backend (best for parquet files)
+# Connect to DuckDB (optimized for parquet)
 con = ibis.duckdb.connect()
 
 # Read parquet file
 table = con.read_parquet("data.parquet")
 
-# View schema
-print(table.schema())
+# Explore
+print(table.schema())      # View schema
+print(table.head(10))      # Preview data
+print(table.describe())    # Summary statistics
 
-# Preview first rows
-print(table.head(10))
+# Filter and aggregate
+summary = (
+    table
+    .filter(table.amount > 100)
+    .group_by("category")
+    .aggregate(
+        total=table.amount.sum(),
+        avg=table.amount.mean(),
+        count=table.count()
+    )
+)
+print(summary.execute())
 
-# Get summary statistics
-print(table.describe())
+# Export
+con.to_parquet(summary, "output.parquet")
 ```
 
-### Basic operations
+## Core Operations
+
+### Select and filter
 
 ```python
-# Filter rows
-filtered = table.filter(table.amount > 1000)
-
 # Select columns
-selected = table.select("customer_id", "amount", "date")
+selected = table.select("id", "amount", "date")
+
+# Filter rows
+filtered = table.filter(
+    (table.amount > 100) &
+    (table.date >= "2024-01-01")
+)
 
 # Sort
 sorted_data = table.order_by(table.amount.desc())
-
-# Aggregate
-summary = table.group_by("category").aggregate(
-    total_amount=table.amount.sum(),
-    avg_amount=table.amount.mean(),
-    count=table.count()
-)
-
-# Display results
-print(summary.execute())
 ```
 
-## Common Analysis Patterns
-
-### Data exploration
+### Transform
 
 ```python
-# Get row count
-row_count = table.count().execute()
-
-# Check for nulls
-null_counts = table.select([
-    col.isnull().sum().name(f"{col}_nulls")
-    for col in table.columns
-])
-print(null_counts.execute())
-
-# Unique values in a column
-unique_categories = table.category.nunique().execute()
-
-# Value counts
-value_counts = (
-    table.group_by("category")
-    .aggregate(count=table.count())
-    .order_by(ibis.desc("count"))
-)
-print(value_counts.execute())
-```
-
-### Filtering and transformation
-
-```python
-# Multiple conditions
-filtered = table.filter(
-    (table.amount > 100) &
-    (table.date >= "2024-01-01") &
-    (table.status == "completed")
-)
-
 # Add computed columns
 enriched = table.mutate(
-    amount_usd=table.amount * table.exchange_rate,
+    revenue=table.quantity * table.unit_price,
     year=table.date.year(),
-    month=table.date.month()
-)
-
-# Conditional logic
-categorized = table.mutate(
-    size_category=ibis.case()
+    size=ibis.case()
         .when(table.amount < 100, "small")
         .when(table.amount < 1000, "medium")
         .else_("large")
@@ -107,189 +75,170 @@ categorized = table.mutate(
 )
 ```
 
-### Aggregations
+### Aggregate
 
 ```python
-# Group by single column
+# Group by and summarize
 by_category = (
     table.group_by("category")
     .aggregate(
         total=table.amount.sum(),
         avg=table.amount.mean(),
-        min=table.amount.min(),
-        max=table.amount.max(),
         count=table.count()
-    )
-)
-
-# Group by multiple columns
-by_date_category = (
-    table.group_by(["date", "category"])
-    .aggregate(
-        total_sales=table.amount.sum(),
-        num_transactions=table.count()
-    )
-)
-
-# Window functions
-ranked = table.mutate(
-    rank=table.amount.rank().over(
-        ibis.window(group_by="category", order_by=table.amount.desc())
     )
 )
 ```
 
-### Joins
+### Join
 
 ```python
-# Read multiple parquet files
+# Read and join multiple files
 customers = con.read_parquet("customers.parquet")
 orders = con.read_parquet("orders.parquet")
 
-# Inner join
-joined = orders.join(
-    customers,
-    orders.customer_id == customers.id,
-    how="inner"
-)
-
-# Left join with column selection
-result = (
+joined = (
     orders
     .join(customers, orders.customer_id == customers.id, how="left")
     .select(
         orders.order_id,
         orders.amount,
-        customers.name,
-        customers.email
+        customers.name
     )
 )
 ```
 
-### Time series operations
+### Export
 
 ```python
-# Date filtering
-recent = table.filter(
-    table.date >= ibis.date("2024-01-01")
+# To parquet
+con.to_parquet(result, "output.parquet")
+
+# To CSV (via pandas)
+df = result.execute()
+df.to_csv("output.csv", index=False)
+```
+
+## Common Patterns
+
+### Data quality checks
+
+```python
+# Row count
+row_count = table.count().execute()
+
+# Check for nulls
+null_counts = table.select([
+    col.isnull().sum().name(f"{col}_nulls")
+    for col in table.columns
+]).execute()
+
+# Value distribution
+table.group_by("category").aggregate(count=table.count()).execute()
+```
+
+### Time-based analysis
+
+```python
+# Monthly aggregation
+monthly = (
+    table.mutate(month=table.date.truncate("M"))
+    .group_by("month")
+    .aggregate(total=table.amount.sum())
+    .order_by("month")
 )
 
 # Extract date components
 dated = table.mutate(
     year=table.date.year(),
     month=table.date.month(),
-    day=table.date.day(),
-    day_of_week=table.date.day_of_week.index()
+    quarter=table.date.quarter()
 )
+```
 
-# Time-based aggregation
-monthly = (
-    table.mutate(month=table.date.truncate("M"))
-    .group_by("month")
-    .aggregate(
-        total=table.amount.sum(),
-        count=table.count()
+### Window functions
+
+```python
+# Rank within groups
+ranked = table.mutate(
+    rank=table.amount.rank().over(
+        ibis.window(group_by="category", order_by=table.amount.desc())
     )
-    .order_by("month")
 )
-```
 
-## Writing Results
-
-### To parquet
-
-```python
-# Write filtered/transformed data to new parquet file
-result = table.filter(table.amount > 1000)
-con.to_parquet(result, "output.parquet")
-```
-
-### To pandas (for visualization or further processing)
-
-```python
-# Convert to pandas DataFrame
-df = table.execute()
-
-# Now you can use matplotlib, seaborn, etc.
-import matplotlib.pyplot as plt
-df.plot(x="date", y="amount", kind="line")
-plt.savefig("trend.png")
-```
-
-### To CSV
-
-```python
-# Via pandas
-df = table.execute()
-df.to_csv("output.csv", index=False)
+# Running total
+with_cumsum = table.mutate(
+    cumulative=table.amount.sum().over(
+        ibis.window(order_by="date", rows=(None, 0))
+    )
+)
 ```
 
 ## Best Practices
 
-1. **Use lazy evaluation**: Ibis operations are lazy - they don't execute until you call `.execute()` or convert to pandas. Chain operations before executing.
+1. **Filter early**: Apply filters before aggregations to reduce data volume
+2. **Use lazy evaluation**: Ibis operations don't execute until `.execute()` is called - chain operations before executing
+3. **Handle nulls**: Check for and handle null values explicitly
+4. **Leverage selectors** for column operations (see [REFERENCE.md](REFERENCE.md))
 
-2. **Filter early**: Apply filters as early as possible to reduce data volume:
-   ```python
-   # Good
-   result = table.filter(table.date > "2024-01-01").group_by("category").aggregate(total=table.amount.sum())
+## Detailed Resources
 
-   # Less efficient
-   result = table.group_by("category").aggregate(total=table.amount.sum()).filter(...)
-   ```
+- **[EXAMPLES.md](EXAMPLES.md)** - Complete examples for all common tasks
+- **[REFERENCE.md](REFERENCE.md)** - Detailed API reference for Ibis operations
+- **[scripts/analyze.py](scripts/analyze.py)** - Complete working example script
+- **[scripts/template.py](scripts/template.py)** - Quick-start template for your analyses
+- **[../../ibis.md](../../ibis.md)** - Additional Ibis context and patterns
 
-3. **Use appropriate backends**: DuckDB is excellent for local parquet files and provides fast analytical queries.
+## Scripts
 
-4. **Handle nulls explicitly**: Check for and handle null values:
-   ```python
-   cleaned = table.filter(table.important_column.notnull())
-   # or
-   filled = table.mutate(important_column=table.important_column.fillna(0))
-   ```
+### Complete analysis workflow
 
-5. **Leverage Ibis selectors** for column operations:
-   ```python
-   import ibis.selectors as s
+Run the full example script:
 
-   # Select all numeric columns
-   numeric_cols = table.select(s.numeric())
+```bash
+python scripts/analyze.py
+```
 
-   # Select columns matching pattern
-   amount_cols = table.select(s.matches(".*_amount"))
-   ```
+This demonstrates:
+- Data exploration and quality checks
+- Transformations and enrichment
+- Aggregations and filtering
+- Joins (if multiple files available)
+- Multiple export formats
+- Optional visualization
 
-## Complete Example Workflow
+### Quick-start template
 
-See [examples/sample-analysis.py](examples/sample-analysis.py) for a complete working example that:
-- Reads a parquet file
-- Performs data exploration
-- Applies filters and transformations
-- Creates aggregations
-- Joins multiple datasets
-- Exports results
+Copy and customize the template:
 
-## Reference
+```bash
+cp scripts/template.py my_analysis.py
+# Edit with your file paths and logic
+python my_analysis.py
+```
 
-For detailed API documentation, see:
-- [Ibis Table Expressions API](https://ibis-project.org/reference/expression-tables)
-- [Ibis Selectors API](https://ibis-project.org/reference/selectors)
-- [Ibis Numeric Expressions](https://ibis-project.org/reference/expression-numeric)
-- [Ibis String Expressions](https://ibis-project.org/reference/expression-string)
-- [Ibis Temporal Expressions](https://ibis-project.org/reference/expression-temporal)
+## Installation
 
-Also see [../../ibis.md](../../ibis.md) for additional context on using Ibis.
+Install required packages:
+
+```bash
+uv add "ibis-framework[duckdb]"
+
+# Optional for visualization
+uv add matplotlib
+```
 
 ## Troubleshooting
 
-**Import error**: Ensure ibis is installed: `uv add "ibis-framework[duckdb]"`
+**Import error**: Ensure `ibis-framework[duckdb]` is installed
 
-**Large files**: DuckDB handles large parquet files efficiently. If you run into memory issues, process in chunks or use more selective queries.
+**Large files**: DuckDB handles large parquet files efficiently. For very large datasets:
+- Filter early and aggressively
+- Use selective column reading: `con.read_parquet("file.parquet", columns=["id", "amount"])`
+- Process in chunks or use more selective queries
 
-**Schema mismatches**: When joining, ensure column types match. Use `.cast()` to convert types:
+**Schema mismatches in joins**: Ensure column types match using `.cast()`:
 ```python
 table = table.mutate(id=table.id.cast("int64"))
 ```
 
-**Performance**: For very large datasets, consider:
-- Filtering early and aggressively
-- Using DuckDB's native SQL for complex queries: `con.sql("SELECT ... FROM table")`
-- Partitioning output parquet files by key columns
+**Performance**: For complex queries, check the generated SQL with `ibis.to_sql(table)` to understand what's being executed
