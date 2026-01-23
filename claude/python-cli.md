@@ -1,0 +1,62 @@
+# Example Implementation
+
+Here's the file structure to use for complex Python CLIs with multiple subcommands:
+
+```
+.
+├── pyproject.toml              # console_script points to `your_package.cli:main`
+└── your_package/
+    ├── __init__.py
+    ├── cli.py                  # root Click group; imports:
+    │                           #   from .foo.commands import cli as foo
+    │                           #   from .bar.commands import cli as bar
+    │                           # and registers:
+    │                           #   cli.add_command(foo, name="foo")
+    │                           #   cli.add_command(bar, name="bar")
+    ├── foo/
+    │   ├── __init__.py
+    │   └── commands.py         # exposes a Click group named `cli`
+    └── bar/
+        ├── __init__.py
+        └── commands.py         # exposes a Click group named `cli`
+```
+
+Here's how to implement the Python CLI itself:
+
+```python
+import click
+
+from .foo.commands import cli as foo
+from .bar.commands import cli as bar
+
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+def cli() -> None:
+    """Project command line interface."""
+    pass
+
+
+@cli.command()
+@click.option("--name", "-n", default="world", help="Who to greet.")
+def hello(name: str) -> None:
+    """Example subcommand."""
+    click.echo(f"Hello, {name}!")
+
+
+def main() -> None:
+    cli()
+
+# here we can add the imported commands with explicit names
+cli.add_command(foo, name="foo")
+cli.add_command(bar, name="bar")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+# Bookkeeping
+
+After you make updates to the CLI, look for an adjacent README.md file and make any necessary updates to it so that the README is an accurate description of the server's behavior.

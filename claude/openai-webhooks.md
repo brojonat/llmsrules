@@ -1,0 +1,28 @@
+```python
+import os
+from fastapi import FastAPI, Request, Response
+from openai import OpenAI, InvalidWebhookSignatureError
+
+app = FastAPI()
+client = OpenAI(webhook_secret=os.environ["OPENAI_WEBHOOK_SECRET"])
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    try:
+        # unwrap will raise if the signature is invalid
+        body = await request.body()
+        headers = dict(request.headers)
+        event = client.webhooks.unwrap(body, headers)
+
+        if event.type == "response.completed":
+            response_id = event.data.id
+            response = client.responses.retrieve(response_id)
+            print("Response output:", response.output_text)
+
+        return Response(status_code=200)
+    except InvalidWebhookSignatureError as e:
+        print("Invalid signature", e)
+        return Response(content="Invalid signature", status_code=400)
+
+# Run with: uvicorn main:app --host 0.0.0.0 --port 8000
+```
