@@ -1,0 +1,26 @@
+{% raw %}{% extends "base.html" %}
+
+{% block title %}Welcome - {% endraw %}{{cookiecutter.project_name}}{% raw %}{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>{% endraw %}{{cookiecutter.project_name}}{% raw %}</h1>
+    <p>{% endraw %}{{cookiecutter.description}}{% raw %}</p>
+    <a href="/auth/magic-link" class="btn btn-primary">Sign In</a>
+</div>
+
+<div class="features">
+    <div class="feature">
+        <h3>DuckLake</h3>
+        <p>Time travel, snapshots, and ACID transactions for your analytics data.</p>
+    </div>
+    <div class="feature">
+        <h3>Events</h3>
+        <p>Generic event model with flexible metadata for any analytics use case.</p>
+    </div>
+    <div class="feature">
+        <h3>Tagging</h3>
+        <p>Flexible tagging system to organize and categorize your entities.</p>
+    </div>
+</div>
+{% endblock %}{% endraw %}

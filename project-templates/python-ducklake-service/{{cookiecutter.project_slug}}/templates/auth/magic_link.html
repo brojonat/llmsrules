@@ -1,0 +1,41 @@
+{% raw %}{% extends "base.html" %}
+
+{% block title %}Sign In - {% endraw %}{{cookiecutter.project_name}}{% raw %}{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <h1>Sign In</h1>
+
+    {% if success %}
+    <div class="alert alert-success">
+        <p>Check your email!</p>
+        <p>We sent a sign-in link to <strong>{{ email }}</strong>.</p>
+        <p>The link expires in 15 minutes.</p>
+    </div>
+    {% else %}
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <p>Enter your email address and we'll send you a magic link to sign in.</p>
+
+    <form action="/auth/magic-link" method="post">
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input
+                type="email"
+                id="email"
+                name="email"
+                required
+                autofocus
+                placeholder="you@example.com"
+            >
+        </div>
+        <button type="submit" class="btn btn-primary">Send Magic Link</button>
+    </form>
+    {% endif %}
+
+    <p class="back-link"><a href="/">Back to home</a></p>
+</div>
+{% endblock %}{% endraw %}

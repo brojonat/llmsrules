@@ -1,0 +1,70 @@
+{% raw %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endraw %}{{cookiecutter.project_name}}{% raw %}{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/htmx.min.js" defer></script>
+    {% block head %}{% endblock %}
+    <script>
+        // Theme initialization (runs immediately to prevent flash)
+        (function() {
+            const saved = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (saved === 'dark' || (!saved && prefersDark)) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="/" class="logo">{% endraw %}{{cookiecutter.project_name}}{% raw %}</a>
+            <div class="nav-right">
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+                    <span class="theme-icon">&#127769;</span>
+                </button>
+                {% if session %}
+                <span>{{ session.email }}</span>
+                <form action="/auth/logout" method="post" style="display: inline;">
+                    <button type="submit" class="btn-link">Logout</button>
+                </form>
+                {% endif %}
+            </div>
+        </nav>
+    </header>
+
+    <main id="main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>{% endraw %}{{cookiecutter.project_name}}{% raw %}</p>
+    </footer>
+
+    <script>
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+
+            html.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+
+            // Update icon
+            const icon = document.querySelector('.theme-icon');
+            icon.textContent = next === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+        }
+
+        // Set initial icon
+        document.addEventListener('DOMContentLoaded', function() {
+            const icon = document.querySelector('.theme-icon');
+            const theme = document.documentElement.getAttribute('data-theme');
+            if (icon) icon.textContent = theme === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+        });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>{% endraw %}

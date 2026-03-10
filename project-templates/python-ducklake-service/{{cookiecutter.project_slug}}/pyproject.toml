@@ -1,0 +1,79 @@
+[project]
+name = "{{cookiecutter.project_slug}}"
+version = "0.1.0"
+description = "{{cookiecutter.description}}"
+authors = [{name = "{{cookiecutter.author}}"}]
+requires-python = ">={{cookiecutter.python_version}}"
+dependencies = [
+    # CLI
+    "click>=8.0",
+
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",
+    "jinja2>=3.1.0",
+
+    # Data
+    "ibis-framework[duckdb]>=9.0.0",
+    "duckdb>=1.1.0",
+    "pyarrow>=17.0.0",
+
+    # Auth
+    "pyjwt>=2.9.0",
+
+    # Email
+    "aiosmtplib>=3.0.0",
+
+    # Config
+    "pydantic-settings>=2.5.0",
+
+    # Observability
+    "structlog>=24.4.0",
+    "prometheus-client>=0.21.0",
+
+    # S3 client (for lake admin)
+    "boto3>=1.35.0",
+
+    # App database (PostgreSQL)
+    "psycopg2-binary>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.6.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+{{cookiecutter.project_slug}} = "{{cookiecutter.package_name}}.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "server", "tests", "migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E203"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py"]
+asyncio_mode = "auto"

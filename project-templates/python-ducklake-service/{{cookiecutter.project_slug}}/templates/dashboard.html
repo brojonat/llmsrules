@@ -1,0 +1,44 @@
+{% raw %}{% extends "base.html" %}
+
+{% block title %}Dashboard - {% endraw %}{{cookiecutter.project_name}}{% raw %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+</div>
+
+<div class="features">
+    <div class="stat">
+        <span class="stat-value">{{ entity_count }}</span>
+        <span class="stat-label">Entities</span>
+    </div>
+    <div class="stat">
+        <span class="stat-value">{{ event_count }}</span>
+        <span class="stat-label">Events</span>
+    </div>
+    <div class="stat">
+        <span class="stat-value">{{ event_types|length }}</span>
+        <span class="stat-label">Event Types</span>
+    </div>
+</div>
+
+{% if event_types %}
+<div style="margin-top: 2rem;">
+    <h2>Event Types</h2>
+    <table class="data-table">
+        <thead>
+            <tr><th>Type</th></tr>
+        </thead>
+        <tbody>
+            {% for et in event_types %}
+            <tr><td>{{ et }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div style="margin-top: 2rem;">
+    <a href="/entities" class="btn btn-primary">Browse Entities</a>
+</div>
+{% endblock %}{% endraw %}

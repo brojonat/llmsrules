@@ -1,0 +1,35 @@
+{% raw %}{% extends "base.html" %}
+
+{% block title %}Entities - {% endraw %}{{cookiecutter.project_name}}{% raw %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Entities</h1>
+</div>
+
+<div class="search-bar">
+    <input
+        type="search"
+        name="search"
+        placeholder="Search entities..."
+        hx-get="/entities"
+        hx-trigger="input changed delay:300ms"
+        hx-target="#entity-list"
+        hx-swap="innerHTML"
+        {% if search %}value="{{ search }}"{% endif %}
+    >
+</div>
+
+<table class="data-table">
+    <thead>
+        <tr><th>Entity ID</th></tr>
+    </thead>
+    <tbody id="entity-list">
+        {% for entity in entities %}
+        <tr><td><a href="/entities/{{ entity }}">{{ entity }}</a></td></tr>
+        {% else %}
+        <tr><td class="empty-state">No entities found.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}{% endraw %}
