@@ -56,6 +56,11 @@ TEMPLATES = {
         "output": "test-bayesian",
         "vars": {"project_name": "Test Bayesian", "author": "testuser"},
     },
+    "ducklake": {
+        "name": "python-ducklake-service",
+        "output": "test-ducklake-service",
+        "vars": {"project_name": "Test Ducklake Service", "author": "testuser"},
+    },
 }
 
 
@@ -335,11 +340,44 @@ def validate_bayesian(project_dir: Path) -> None:
     success("python-bayesian-experiment validation complete")
 
 
+def validate_ducklake(project_dir: Path) -> None:
+    """Validate python-ducklake-service template."""
+    section("Validating python-ducklake-service")
+
+    run_with_output("make help", cwd=project_dir)
+    success("make help works")
+
+    run_with_output(["uv", "sync", "--all-extras"], cwd=project_dir)
+    success("uv sync --all-extras works")
+
+    run_with_output(["uv", "run", "test-ducklake-service", "--help"], cwd=project_dir)
+    success("CLI --help works")
+
+    run_with_output(["uv", "run", "test-ducklake-service", "serve", "--help"], cwd=project_dir)
+    success("CLI serve --help works")
+
+    run_with_output(["uv", "run", "test-ducklake-service", "migrate", "--help"], cwd=project_dir)
+    success("CLI migrate --help works")
+
+    run_with_output("make lint", cwd=project_dir)
+    success("make lint works")
+
+    # Tests need env vars but no running services
+    env = os.environ.copy()
+    env["SKIP_INTEGRATION"] = "1"
+    log("make test (SKIP_INTEGRATION=1)")
+    subprocess.run(["make", "test"], cwd=project_dir, check=True, env=env)
+    success("make test works")
+
+    success("python-ducklake-service validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
     "cli": validate_python_cli,
     "bayesian": validate_bayesian,
+    "ducklake": validate_ducklake,
 }
 
 
@@ -357,7 +395,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -373,7 +411,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -441,6 +479,17 @@ def show() -> None:
     click.echo("  make start-dev     # Start tmux dev session")
     click.echo("  uv run <name> experiments list")
     click.echo("  make test")
+    click.echo()
+
+    click.echo(f"{BLUE}python-ducklake-service:{NC}")
+    click.echo("  make help          # Show targets")
+    click.echo("  uv sync --all-extras")
+    click.echo("  make run-dev       # Run with hot reload")
+    click.echo("  make migrate       # Run migrations")
+    click.echo("  uv run <name> --help")
+    click.echo("  uv run <name> serve --help")
+    click.echo("  make test          # Needs docker-compose services")
+    click.echo("  make lint")
 
 
 if __name__ == "__main__":
