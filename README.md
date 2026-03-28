@@ -103,6 +103,22 @@ npx skills remove <skill-name>
 npx skills init my-skill
 ```
 
+### Installing all skills
+
+To install everything (my skills + all third-party skills listed below) into a
+project, run from that project's root:
+
+```bash
+./install-skills.sh
+```
+
+This populates a `skills-lock.json` you can commit. On another machine, restore
+the same set with:
+
+```bash
+npx skills experimental_install
+```
+
 ### Skills in this repo
 
 These are my own skills, extracted from the docs in this repo. Install them into
