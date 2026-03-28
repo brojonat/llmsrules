@@ -1,0 +1,4 @@
+# Installed skills (reproducible via skills-lock.json)
+.agents/
+.claude/skills/
+.cursor/skills/
