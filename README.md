@@ -66,3 +66,76 @@ cookiecutter project-templates/python-cli
 
 See [`project-templates/README.md`](project-templates/README.md) for full
 documentation.
+
+## Skills
+
+I use [skills.sh](https://skills.sh/) to manage reusable agent skills. Skills
+are packages of instructions, scripts, and resources that AI coding agents load
+dynamically — think plugins for your agent. They follow the open
+[Agent Skills spec](https://agentskills.io) and work across 40+ agents (Claude
+Code, Cursor, Copilot, Gemini CLI, etc.).
+
+### Managing skills with `npx skills`
+
+```bash
+# Find skills interactively or by keyword
+npx skills find
+npx skills find "bayesian"
+
+# List available skills in a repo before installing
+npx skills add <owner/repo> --list
+
+# Install skills (symlinked by default, easy to update)
+npx skills add <owner/repo>                    # all skills, project-local
+npx skills add <owner/repo> -g                 # install globally (~/)
+npx skills add <owner/repo> -s skill-name      # specific skill only
+npx skills add <owner/repo> -a claude-code     # target a specific agent
+
+# Check for updates and apply them
+npx skills check
+npx skills update
+
+# List and remove installed skills
+npx skills list
+npx skills remove <skill-name>
+
+# Scaffold a new skill
+npx skills init my-skill
+```
+
+### Skills in this repo
+
+These are my own skills, extracted from the docs in this repo. Install them into
+any project with:
+
+```bash
+npx skills add brojonat/llmsrules
+```
+
+| Skill              | Description                                                         |
+| ------------------ | ------------------------------------------------------------------- |
+| `fastapi-service`  | FastAPI with JWT auth, structlog, Prometheus metrics                |
+| `python-cli`       | Click CLI with composable subcommand groups                         |
+| `go-service`       | Go microservice with stdlib HTTP, sqlc, urfave/cli, slog            |
+| `scikit-learn`     | ML pipelines, cross-validation, hyperparameter tuning, MLflow       |
+| `k8s-deployment`   | Docker multi-stage builds, kustomize overlays, Makefile automation  |
+| `ducklake`         | DuckLake lakehouse: snapshots, time travel, schema evolution        |
+| `openai-agents`    | OpenAI Agents SDK: tools, handoffs, context, webhooks (Python + Go) |
+| `pyproject-config` | pyproject.toml with setuptools, ruff, pytest                        |
+| `ibis-data`        | Database-agnostic data access with Ibis                             |
+| `parquet-analysis` | Parquet file analysis with Ibis and DuckDB                          |
+| `temporal-go`      | Temporal workflows, activities, workers, signals, sagas in Go       |
+| `temporal-python`  | Temporal workflows, activities, workers, signals, sagas in Python   |
+
+### Third-party skills I like
+
+| Repository                                                              | Focus                     | Highlights                                                                                        |
+| ----------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
+| [anthropics/skills](https://github.com/anthropics/skills)               | Anthropic official        | `frontend-design`, `pdf`, `docx`, `xlsx`, `pptx`, `skill-creator`                                 |
+| [obra/superpowers](https://github.com/obra/superpowers)                 | Dev methodology           | `systematic-debugging`, `test-driven-development`, `dispatching-parallel-agents`, `writing-plans` |
+| [pymc-labs/agent-skills](https://github.com/pymc-labs/agent-skills)     | Probabilistic programming | `pymc-modeling` (Bayesian stats, PyMC v5+, ArviZ, BART), `marimo-notebooks`                       |
+| [marimo-team/skills](https://github.com/marimo-team/skills)             | marimo notebooks          | `marimo-notebook`, `jupyter-to-marimo`, `streamlit-to-marimo`, `anywidget`, `implement-paper`     |
+| [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) | React / Next.js           | `vercel-react-best-practices`, `web-design-guidelines`, `deploy-to-vercel`                        |
+| [supabase/agent-skills](https://github.com/supabase/agent-skills)       | PostgreSQL                | `supabase-postgres-best-practices`                                                                |
+| [temporalio/skill-temporal-developer](https://github.com/temporalio/skill-temporal-developer) | Temporal                  | Official Temporal developer skill                                                                 |
+| [planetscale/database-skills](https://github.com/planetscale/database-skills) | MySQL / PlanetScale       | PlanetScale database development skills                                                           |

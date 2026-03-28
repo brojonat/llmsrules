@@ -584,4 +584,4 @@ table.group_by("category").aggregate(
 )
 ```
 
-For additional context on using Ibis, see [../../ibis.md](../../ibis.md).
+For additional context on using Ibis, see [../ibis-data/SKILL.md](../ibis-data/SKILL.md).

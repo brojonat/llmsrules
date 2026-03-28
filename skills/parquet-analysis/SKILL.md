@@ -186,7 +186,7 @@ with_cumsum = table.mutate(
 - **[REFERENCE.md](REFERENCE.md)** - Detailed API reference for Ibis operations
 - **[scripts/analyze.py](scripts/analyze.py)** - Complete working example script
 - **[scripts/template.py](scripts/template.py)** - Quick-start template for your analyses
-- **[../../ibis.md](../../ibis.md)** - Additional Ibis context and patterns
+- **[../ibis-data/SKILL.md](../ibis-data/SKILL.md)** - Additional Ibis context and patterns
 
 ## Scripts
 
