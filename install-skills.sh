@@ -15,6 +15,7 @@ npx skills add anthropics/skills -y
 npx skills add obra/superpowers -y
 npx skills add pymc-labs/agent-skills -y
 npx skills add marimo-team/skills -y
+npx skills add marimo-team/marimo-pair -y
 npx skills add temporalio/skill-temporal-developer -y
 npx skills add planetscale/database-skills -y
 npx skills add supabase/agent-skills -y
