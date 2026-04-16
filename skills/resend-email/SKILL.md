@@ -1,22 +1,30 @@
 ---
 name: resend-email
-description: Send transactional emails via Resend using SMTP or HTTP API. Use when integrating Resend for magic links, scheduled emails, cancellation, or listing sent emails. Covers API keys, SMTP config, scheduled_at, and Go integration patterns.
+description:
+  Send transactional emails via Resend using SMTP or HTTP API. Use when
+  integrating Resend for magic links, scheduled emails, cancellation, or listing
+  sent emails. Covers API keys, SMTP config, scheduled_at, and Go integration
+  patterns.
 ---
 
 # Resend Email Integration
 
-[Resend](https://resend.com) is a transactional email service. It supports both SMTP and a REST API. Use SMTP for simple sends and the HTTP API for scheduled emails, cancellation, and listing.
+[Resend](https://resend.com) is a transactional email service. It supports both
+SMTP and a REST API. Use SMTP for simple sends and the HTTP API for scheduled
+emails, cancellation, and listing.
 
 ## API keys
 
 Resend has scoped API keys. This matters:
 
-| Key type | Can send | Can schedule | Can cancel | Can list |
-|----------|----------|-------------|------------|----------|
-| Send-only (`re_...`) | Yes | Yes (via HTTP API) | No | No |
-| Full access (`re_...`) | Yes | Yes | Yes | Yes |
+| Key type               | Can send | Can schedule       | Can cancel | Can list |
+| ---------------------- | -------- | ------------------ | ---------- | -------- |
+| Send-only (`re_...`)   | Yes      | Yes (via HTTP API) | No         | No       |
+| Full access (`re_...`) | Yes      | Yes                | Yes        | Yes      |
 
-**Best practice**: use a send-only key for SMTP/sending and a separate full-access key for admin operations (cancel, list). Never use the full-access key for routine sends.
+**Best practice**: use a send-only key for SMTP/sending and a separate
+full-access key for admin operations (cancel, list). Never use the full-access
+key for routine sends.
 
 ```
 SMTP_PASS=re_eiuw...        # send-only, used for SMTP and scheduled sends
@@ -25,9 +33,13 @@ RESEND_SUDO_KEY=re_Ak8U...  # full-access, used for cancel/list operations
 
 ## Domain verification
 
-Before sending, your domain must be verified in Resend. Add the DNS records (TXT, CNAME) from the Resend dashboard. The `from` address must use a verified domain.
+Before sending, your domain must be verified in Resend. Add the DNS records
+(TXT, CNAME) from the Resend dashboard. The `from` address must use a verified
+domain.
 
-If you don't have your own domain verified, you can use a domain from another project that's already set up — just make sure the `SMTP_FROM` address uses that domain.
+If you don't have your own domain verified, you can use a domain from another
+project that's already set up — just make sure the `SMTP_FROM` address uses that
+domain.
 
 ## Sending via SMTP (Go)
 
@@ -40,7 +52,8 @@ smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 ```
 
 Config:
-```
+
+```txt
 SMTP_HOST=smtp.resend.com
 SMTP_PORT=587
 SMTP_USER=resend
@@ -78,10 +91,12 @@ payload := map[string]any{
 ```
 
 `scheduled_at` accepts:
+
 - ISO 8601 / RFC3339: `"2026-05-16T00:18:20Z"`
 - Natural language: `"in 1 min"`, `"in 30 days"`
 
-**Important**: Save the returned email ID — you'll need it to cancel. Log it and/or return it in your API response.
+**Important**: Save the returned email ID — you'll need it to cancel. Log it
+and/or return it in your API response.
 
 ## Cancelling scheduled emails
 
@@ -94,6 +109,7 @@ curl -X POST https://api.resend.com/emails/{id}/cancel \
 ```
 
 In Go:
+
 ```go
 req, _ := http.NewRequest("POST", "https://api.resend.com/emails/"+emailID+"/cancel", nil)
 req.Header.Set("Authorization", "Bearer "+sudoKey)
@@ -109,12 +125,15 @@ curl -X GET 'https://api.resend.com/emails?limit=100' \
 ```
 
 Query params:
+
 - `limit` (1-100, default 20)
 - `after` / `before` (email ID for pagination)
 
-Response includes `id`, `to`, `from`, `subject`, `scheduled_at`, `last_event`, `created_at`.
+Response includes `id`, `to`, `from`, `subject`, `scheduled_at`, `last_event`,
+`created_at`.
 
 Filter for scheduled emails:
+
 ```bash
 curl -s -H "Authorization: Bearer $KEY" \
   "https://api.resend.com/emails?limit=100" | \
@@ -134,10 +153,12 @@ type EmailSender interface {
 ```
 
 - `ConsoleSender`: prints to stdout in dev, returns fake IDs
-- `SMTPSender`: uses SMTP for `Send`, Resend HTTP API for `SendScheduled`/`CancelScheduled`
+- `SMTPSender`: uses SMTP for `Send`, Resend HTTP API for
+  `SendScheduled`/`CancelScheduled`
 - Switch based on whether `SMTP_HOST` is set
 
 The `SMTPSender` needs two keys:
+
 ```go
 type SMTPSender struct {
     Host    string
@@ -151,8 +172,13 @@ type SMTPSender struct {
 
 ## Gotchas
 
-- **Send-only vs full-access keys**: The SMTP password/send key cannot cancel or list emails. You get a 401 with `"This API key is restricted to only send emails"`. Use a separate full-access key.
-- **Domain verification required**: Sending from an unverified domain returns `550 The domain is not verified`.
-- **SMTP user is always "resend"**: Not your email, not your API key — literally the string `resend`.
+- **Send-only vs full-access keys**: The SMTP password/send key cannot cancel or
+  list emails. You get a 401 with
+  `"This API key is restricted to only send emails"`. Use a separate full-access
+  key.
+- **Domain verification required**: Sending from an unverified domain returns
+  `550 The domain is not verified`.
+- **SMTP user is always "resend"**: Not your email, not your API key — literally
+  the string `resend`.
 - **Scheduled emails can't be modified**: You can only cancel and re-create.
 - **Max 50 recipients per email**: Use multiple sends for bulk.
