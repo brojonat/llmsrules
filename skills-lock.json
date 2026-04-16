@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "absurd": {
+      "source": "earendil-works/absurd",
+      "sourceType": "github",
+      "computedHash": "edc994d9cd6969ad22b5f5d2164077f84d71fe09edd5a714048eb1da6444b6eb"
+    },
     "add-molab-badge": {
       "source": "marimo-team/skills",
       "sourceType": "github",

@@ -20,3 +20,4 @@ npx skills add temporalio/skill-temporal-developer -y
 npx skills add planetscale/database-skills -y
 npx skills add supabase/agent-skills -y
 npx skills add vercel-labs/agent-skills -y
+npx skills add earendil-works/absurd -y
