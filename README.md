@@ -143,6 +143,8 @@ npx skills add brojonat/llmsrules
 | `parquet-analysis` | Parquet file analysis with Ibis and DuckDB                          |
 | `temporal-go`      | Temporal workflows, activities, workers, signals, sagas in Go       |
 | `temporal-python`  | Temporal workflows, activities, workers, signals, sagas in Python   |
+| `bubbletea`        | Go TUIs with Bubble Tea (Model/Update/View), Bubbles, Lipgloss      |
+| `urfave-cli`       | Go CLIs with urfave/cli v3: subcommands, flags, env, completion     |
 
 ### Third-party skills I like
 

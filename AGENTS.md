@@ -78,6 +78,38 @@ run-server: ## Run server with hot reload, tee to logs/
 
 Keep `logs/` gitignored. The value is the feedback loop, not the artifacts.
 
+## Project Bookkeeping (for the Ralph Wiggum loop)
+
+Every project keeps four living documents at the root so an agent with empty
+context can bootstrap itself in a few reads. Update them after every major
+task — they are the state handoff between sessions.
+
+- **`README.md`** — For humans and agents. Describes the interface: what this
+  project does, how to build/run/test it, the primary commands, and the
+  public API surface. If someone (or a future agent) can't figure out how to
+  use the project from the README, it's broken.
+
+- **`TODO.md`** — Tracked work items. Agents may edit freely to mark tasks
+  complete, add new tasks, record dependencies between tasks, or reshuffle
+  priority. Keep it flat and scannable; one line per task with status
+  markers (`[ ]`, `[x]`, `[blocked: ...]`).
+
+- **`CHANGELOG.md`** — Append-only. Every meaningful change lands as a new
+  entry, newest first, grouped by version or date. Follow the [Keep a
+  Changelog](https://keepachangelog.com/) format. Never rewrite history —
+  if something was wrong, add a correcting entry.
+
+- **`LEARNINGS.md`** — Hard-won knowledge. When an agent discovers a pitfall
+  the hard way — a subtle bug, a misleading API, a tool that silently does
+  the wrong thing, a pattern that looks right but isn't — record it here
+  with enough context that the next agent avoids the same ditch. Frame each
+  entry as: *what happened, why it was surprising, how to avoid it.*
+
+**After every major task, update all four files as needed.** An agent starting
+fresh should be able to read `README.md` → `TODO.md` → `LEARNINGS.md` (in that
+order) and be immediately productive. That's the Ralph Wiggum loop: any agent,
+any time, zero prior context, still shipping.
+
 ## Language Idioms
 
 Honor the culture of the language you're in.
