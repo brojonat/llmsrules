@@ -129,6 +129,56 @@ Every service should ship with:
 - Validate at system boundaries (user input, external APIs). Trust internal
   code.
 
+## Project Bootstrapping: Installing Skills
+
+When initializing a new project, install **only the skills that are relevant
+to what the README describes**. The blanket `./install-skills.sh` at the root
+of this repo pulls in everything as a convenience for contributors; a fresh
+project should stay lean so the agent's skill-selection step isn't polluted
+by irrelevant options.
+
+Once a `README.md` exists for the new project, do the following before any
+code is written:
+
+1. Read the README and enumerate the concrete capabilities the project needs
+   (e.g. "FastAPI service talking to Postgres", "Temporal workflows in Go",
+   "marimo notebook for exploratory analysis").
+2. Cross-reference each capability against the skill catalog in this repo's
+   top-level `README.md` (both "Skills in this repo" and "Third-party skills I
+   like"). For anything not covered, run `npx skills find <keyword>` to
+   discover candidates.
+3. Write an executable `install-skills.sh` at the project root that installs
+   **only the matching skills**, one skill per line, pinned by name with the
+   `-s` flag:
+
+   ```bash
+   #!/bin/bash
+   # Per-skill installs, selected to match the capabilities in README.md.
+   # Commit the resulting skills-lock.json.
+   set -e
+
+   npx skills add brojonat/llmsrules -s fastapi-service -y
+   npx skills add brojonat/llmsrules -s pyproject-config -y
+   npx skills add supabase/agent-skills -s supabase-postgres-best-practices -y
+   npx skills add obra/superpowers -s systematic-debugging -y
+   npx skills add obra/superpowers -s test-driven-development -y
+   ```
+
+4. Run the script and commit both `install-skills.sh` and the generated
+   `skills-lock.json`. On another machine, `npx skills experimental_install`
+   will restore the exact set from the lockfile.
+
+**Always use the `-s <skill>` form, one skill per line.** The `npx skills add
+<owner/repo>` form without `-s` installs every skill in that repo, which
+drags in unrelated skills and forces the agent to wade through noise on every
+skill-selection step. Explicit per-skill lines are self-documenting, stay
+honest as requirements evolve, and give future-you (or a reviewer) a clear
+answer to "why is this skill here?"
+
+If the project later grows a new capability, add the corresponding
+`npx skills add ... -s ... -y` line and re-run the script — don't reach for
+the whole-repo shortcut.
+
 ## When In Doubt
 
 Ask: *"Does this add essential value, or does it just add complexity?"* If you
