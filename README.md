@@ -1,16 +1,17 @@
 # llmsrules
 
-This started as a repo for storing the dotfiles I use for various LLM based
-agents (Cursor, Claude, Goose, etc). Each agent seems to take a slightly
-different format, so each provider has a separate folder here. I'll typically
-use an agent to port the documents from one provider to another.
+This started as a repo for storing the dotfiles I used for various LLM-based
+agents (Cursor, Claude, Goose, etc). Each agent took a slightly different
+format, so I maintained a separate folder per provider and ported documents
+between them.
 
-The `.cursorrules` is the prototypical example. Cursor-specific rules live under
-`.cursor/rules/` and use `.mdc` files with front‑matter (description, globs,
-alwaysApply) plus guidance content. This format differs from the vanilla `.md`
-and Skills files I have in the Claude directory. You get the idea.
+That approach collapsed once the [Agent Skills
+spec](https://agentskills.io) and [skills.sh](https://skills.sh/) landed. A
+single `SKILL.md` format now works across 40+ agents, so everything I maintain
+lives in `skills/` and gets distributed via `npx skills add`. `AGENTS.md`
+captures the high-level philosophy that applies to every project I bootstrap.
 
-However, I quickly realized I was going about this all wrong. See, about a
+I also realized I was going about this all wrong. See, about a
 decade ago I had this dream of having a library of project templates that I
 could use to bootstrap new projects and get cracking in the blink of an eye. I
 think it might have been @tiangolo's
