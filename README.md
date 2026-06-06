@@ -144,6 +144,7 @@ npx skills add brojonat/llmsrules
 | `temporal-go`      | Temporal workflows, activities, workers, signals, sagas in Go       |
 | `temporal-python`  | Temporal workflows, activities, workers, signals, sagas in Python   |
 | `bubbletea`        | Go TUIs with Bubble Tea (Model/Update/View), Bubbles, Lipgloss      |
+| `statistical-process-control` | XmR / control charts: frozen limits, signal rules, derived streams |
 | `urfave-cli`       | Go CLIs with urfave/cli v3: subcommands, flags, env, completion     |
 
 ### Third-party skills I like
