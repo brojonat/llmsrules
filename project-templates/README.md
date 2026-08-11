@@ -74,6 +74,33 @@ make build && ./bin/my-service --help
 make run-dev  # Hot reload with logs to logs/server.log
 ```
 
+### go-datastar-minimal
+
+The smallest thing that demonstrates [the Tao of Datastar][tao]: one file, zero
+dependencies, no build step.
+
+```bash
+cookiecutter path/to/project-templates/go-datastar-minimal
+cd my-app
+go run .   # open http://localhost:8080 in two tabs
+```
+
+`main.go` holds the state, the templates, the SSE protocol, and four routes.
+There is no `go.sum` — the Datastar wire format is two event types, written out
+by hand, so `go run .` works on a fresh clone with no module downloads. The
+browser loads `datastar.js` from a CDN in one script tag.
+
+It exists to make the architecture legible before the production concerns pile
+on. State lives on the server; `GET /updates` is a single long-lived SSE read
+that never returns; `POST /add` mutates and answers `204` and renders nothing.
+That CQRS split is what makes it multiplayer without any code that knows about
+other clients.
+
+Reach for `go-real-time-service` instead when you want templ, per-session
+state, metrics, and a Kubernetes deployment.
+
+[tao]: https://data-star.dev/guide/the_tao_of_datastar
+
 ### go-real-time-service
 
 Go service for real-time hypermedia apps, in the style of
@@ -367,6 +394,13 @@ project-templates/
 │       │   └── .gitkeep
 │       └── data/                     # gitignored - local data
 │           └── .gitkeep
+├── go-datastar-minimal/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore
+│       ├── README.md
+│       ├── go.mod                  # no requires, no go.sum
+│       └── main.go                 # state, templates, SSE protocol, 4 routes
 ├── go-real-time-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -394,9 +428,7 @@ project-templates/
 │       │   ├── static_prod.go      # embed + content hash
 │       │   ├── static/             # vendored datastar.js, generated index.css
 │       │   └── styles/             # tailwind entry + daisyui plugin
-│       ├── k8s/prod/               # replicas: 1, no PVC, SSE-safe ingress
-│       ├── logs/                   # gitignored - dev logs
-│       └── data/                   # gitignored - local data
+│       └── k8s/prod/               # replicas: 1, no PVC, SSE-safe ingress
 ├── python-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1283,6 +1315,7 @@ The validation script tests:
 | `python-service` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, server `/healthz` |
 | `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
 | `python-bayesian-experiment` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, `experiments --help`, server `/healthz` |
+| `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/README/`.gitignore`, no `go.sum`, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
 | `go-real-time-service` | `make help`, `make setup`, `go build` works on generated output, `make verify-generated`, `make build`, CLI `--help`, `make test`, server `/healthz`, SSE stream emits an element patch |
 
 ### Manual Testing
@@ -1347,6 +1380,11 @@ uv run test-cli foo do-something
   - [x] DuckDB/Ibis for data storage
   - [x] tmux dev session management
   - [x] Tests for server endpoints
+- [x] Create go-datastar-minimal template
+  - [x] Single-file server, zero dependencies, runs with `go run .`
+  - [x] Datastar SSE protocol written by hand (patch-elements + signal reads)
+  - [x] CQRS loop: one long-lived read, short-lived writes returning 204
+  - [x] Multiplayer by construction, verified across two browser contexts
 - [x] Create go-real-time-service template
   - [x] Datastar SSE patterns: KV watch, server push, signal patches
   - [x] templ views with computation in Go view structs

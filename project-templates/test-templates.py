@@ -66,6 +66,11 @@ TEMPLATES = {
         "output": "test-realtime-service",
         "vars": {"project_name": "Test Realtime Service", "author": "testuser"},
     },
+    "minimal": {
+        "name": "go-datastar-minimal",
+        "output": "test-datastar-minimal",
+        "vars": {"project_name": "Test Datastar Minimal", "author": "testuser"},
+    },
 }
 
 
@@ -452,6 +457,77 @@ def validate_realtime(project_dir: Path) -> None:
     success("go-real-time-service validation complete")
 
 
+def validate_minimal(project_dir: Path) -> None:
+    """Validate go-datastar-minimal template."""
+    section("Validating go-datastar-minimal")
+
+    # The whole promise of this template: one file, no deps, no setup step.
+    files = sorted(p.name for p in project_dir.iterdir() if p.is_file())
+    if files == [".gitignore", "README.md", "go.mod", "main.go"]:
+        success("template is exactly main.go + go.mod + README + .gitignore")
+    else:
+        warn(f"unexpected file set: {files}")
+
+    if not (project_dir / "go.sum").exists():
+        success("no go.sum -- zero dependencies")
+    else:
+        warn("go.sum present; the template picked up a dependency")
+
+    run_with_output("gofmt -l .", cwd=project_dir)
+    run_with_output("go vet ./...", cwd=project_dir)
+    success("gofmt and go vet are clean")
+
+    log("Starting server briefly...")
+    env = os.environ.copy()
+    env["PORT"] = "18090"
+    server = subprocess.Popen(
+        ["go", "run", "."],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    time.sleep(4)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18090/"],
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if result.returncode == 0 and 'id="board"' in result.stdout:
+            success("`go run .` serves the page")
+        else:
+            warn("page did not render")
+
+        # Write, then confirm the read stream carries it back.
+        subprocess.run(
+            ["curl", "-sf", "-X", "POST", "-d", '{"message":"from curl"}',
+             "http://localhost:18090/add"],
+            capture_output=True,
+            timeout=5,
+        )
+        result = subprocess.run(
+            ["curl", "-sN", "-m", "3", "http://localhost:18090/updates"],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+        if "datastar-patch-elements" in result.stdout and "from curl" in result.stdout:
+            success("POST /add lands on the SSE read stream")
+        else:
+            warn("SSE stream did not carry the write")
+    except Exception:
+        warn("Server checks failed")
+    finally:
+        server.terminate()
+        server.wait()
+        # `go run` execs a child; make sure the listener is really gone.
+        subprocess.run(["pkill", "-f", "exe/test-datastar-minimal"], capture_output=True)
+
+    success("go-datastar-minimal validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -459,6 +535,7 @@ VALIDATORS = {
     "bayesian": validate_bayesian,
     "ducklake": validate_ducklake,
     "realtime": validate_realtime,
+    "minimal": validate_minimal,
 }
 
 
@@ -476,7 +553,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -492,7 +569,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -560,6 +637,11 @@ def show() -> None:
     click.echo("  make start-dev     # Start tmux dev session")
     click.echo("  uv run <name> experiments list")
     click.echo("  make test")
+    click.echo()
+
+    click.echo(f"{BLUE}go-datastar-minimal:{NC}")
+    click.echo("  go run .           # that is the whole dev loop")
+    click.echo("  # open http://localhost:8080 in two tabs")
     click.echo()
 
     click.echo(f"{BLUE}go-real-time-service:{NC}")

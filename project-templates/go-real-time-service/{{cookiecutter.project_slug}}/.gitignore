@@ -16,11 +16,8 @@ web/resources/static/index.css
 .env.*
 !.env.example
 
-# Development
+# Dev logs. The make targets mkdir this, so there is no .gitkeep to preserve.
 logs/
-!logs/.gitkeep
-data/
-!data/.gitkeep
 
 # IDE
 .idea/

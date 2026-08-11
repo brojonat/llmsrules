@@ -1,0 +1,7 @@
+{
+  "project_name": "My Realtime App",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
+  "description": "A real-time web app in one file",
+  "author": "Your Name",
+  "go_mod": "github.com/{{ cookiecutter.author.lower().replace(' ', '') }}/{{ cookiecutter.project_slug }}"
+}

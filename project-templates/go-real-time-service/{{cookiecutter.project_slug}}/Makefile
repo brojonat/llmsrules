@@ -73,7 +73,7 @@ lint: generate ## Run linter
 
 .PHONY: clean
 clean: ## Remove build artifacts and generated code
-	rm -rf bin/ tmp/ data/ logs/*.log $(STATIC_DIR)/index.css
+	rm -rf bin/ tmp/ logs/*.log $(STATIC_DIR)/index.css
 	find . -name '*_templ.go' -delete
 
 # ---------------------------------------------------------------------------
