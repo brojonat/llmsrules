@@ -1,0 +1,17 @@
+package todos
+
+import (
+	"{{cookiecutter.go_mod}}/features/common/components"
+	"{{cookiecutter.go_mod}}/features/common/layouts"
+)
+
+// Page ships an empty placeholder. The single GET opened by data-init is what
+// fills it in, and every later update arrives on that same connection.
+templ Page(title string) {
+	@layouts.Base(title) {
+		<main class="flex flex-col w-full min-h-screen">
+			@components.Nav(components.PageTodos)
+			<div id="todos" data-init="@get('/api/todos')"></div>
+		</main>
+	}
+}

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{cookiecutter.project_slug}}
+  namespace: {{cookiecutter.k8s_namespace}}
+spec:
+  # Single replica on purpose. NATS runs embedded in the process, so two pods
+  # would each hold their own state and users would see whichever they landed
+  # on. Scaling out means moving to an external NATS cluster first.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{cookiecutter.project_slug}}
+  template:
+    metadata:
+      labels:
+        app: {{cookiecutter.project_slug}}
+    spec:
+      containers:
+        - name: {{cookiecutter.project_slug}}
+          image: "{% raw %}{{DOCKER_REPO}}:{{GIT_COMMIT_SHA}}{% endraw %}"
+          args: ["server"]
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: LOG_LEVEL
+              value: "warn"
+            - name: SERVER_ADDR
+              value: ":8080"
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{cookiecutter.project_slug}}-secrets
+                  key: session-secret
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            # JetStream needs a writable directory even for memory-backed
+            # buckets. Nothing here outlives the pod, so emptyDir is correct.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

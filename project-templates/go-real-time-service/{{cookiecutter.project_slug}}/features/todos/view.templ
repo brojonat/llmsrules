@@ -1,0 +1,130 @@
+package todos
+
+import (
+	"fmt"
+
+	"github.com/starfederation/datastar-go/datastar"
+
+	"{{cookiecutter.go_mod}}/features/common/components"
+)
+
+// TodosView is the fragment pushed over SSE on every state change.
+//
+// Its outer id must stay in sync with the placeholder rendered by Page, since
+// Datastar patches elements by id.
+templ TodosView(v View) {
+	<div id="todos" class="card bg-base-200 shadow-xl mx-auto my-4 w-full max-w-2xl">
+		<div class="card-body gap-4" data-signals={ inputSignal(v.Input) }>
+			<h1 class="card-title text-3xl font-bold">Todos</h1>
+			<p class="text-sm opacity-70">
+				This whole panel is driven by one long-lived GET to
+				<code>/api/todos</code>. Mutations write to NATS; a KV watcher
+				renders this fragment and pushes it back down.
+			</p>
+			<div class="flex items-center gap-2">
+				if v.HasTodos {
+					<button
+						class="btn btn-square"
+						title="toggle all"
+						data-on:click={ datastar.PostSSE("/api/todos/item/-1/toggle") }
+					>
+						&check;
+					</button>
+				}
+				@TodoInput(v.EditingIdx())
+			</div>
+			if v.HasTodos {
+				<ul class="divide-y divide-base-300">
+					for _, row := range v.Rows {
+						@TodoRow(row)
+					}
+				</ul>
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<span class="text-sm">
+						<strong>{ fmt.Sprint(v.Remaining) }</strong> { v.ItemsWord } left
+					</span>
+					<div class="join">
+						for _, tab := range v.Modes {
+							if tab.Selected {
+								<button class="btn btn-xs btn-primary join-item">{ tab.Name }</button>
+							} else {
+								<button
+									class="btn btn-xs join-item"
+									data-on:click={ datastar.PutSSE("/api/todos/mode/%d", int(tab.Mode)) }
+								>
+									{ tab.Name }
+								</button>
+							}
+						}
+					</div>
+					<div class="join">
+						if v.Completed > 0 {
+							<button
+								class="btn btn-xs btn-error join-item"
+								data-on:click={ datastar.DeleteSSE("/api/todos/item/-1") }
+							>
+								Clear done
+							</button>
+						}
+						<button
+							class="btn btn-xs btn-warning join-item"
+							data-on:click={ datastar.PutSSE("/api/todos/reset") }
+						>
+							Reset
+						</button>
+					</div>
+				</div>
+				<p class="text-center text-xs opacity-60">
+					Click a todo to edit it, click away to cancel, press enter to save.
+				</p>
+			}
+		</div>
+	</div>
+}
+
+// TodoInput doubles as the new-todo field (idx -1) and the inline editor.
+templ TodoInput(idx int) {
+	<input
+		id="todo-input"
+		class="input input-bordered flex-1"
+		placeholder="What needs to be done?"
+		data-bind:input
+		data-on:keydown={ submitOnEnter(idx) }
+		if idx >= 0 {
+			data-on:click__outside={ datastar.PutSSE("/api/todos/cancel") }
+		}
+	/>
+}
+
+templ TodoRow(row Row) {
+	if row.Editing {
+		<li class="py-2">
+			@TodoInput(row.Idx)
+		</li>
+	} else {
+		<li class="flex items-center gap-3 py-2 group">
+			<input
+				type="checkbox"
+				class="checkbox"
+				checked?={ row.Completed }
+				data-on:click={ datastar.PostSSE("/api/todos/item/%d/toggle", row.Idx) }
+				data-indicator={ row.Signal }
+			/>
+			<span
+				class={ "flex-1 cursor-pointer select-none", templ.KV("line-through opacity-50", row.Completed) }
+				data-on:click={ datastar.GetSSE("/api/todos/item/%d/edit", row.Idx) }
+				data-indicator={ row.Signal }
+			>
+				{ row.Text }
+			</span>
+			@components.Spinner(row.Signal)
+			<button
+				class="btn btn-xs btn-error invisible group-hover:visible"
+				data-on:click={ datastar.DeleteSSE("/api/todos/item/%d", row.Idx) }
+				data-indicator={ row.Signal }
+			>
+				&times;
+			</button>
+		</li>
+	}
+}

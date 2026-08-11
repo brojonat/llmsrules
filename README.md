@@ -43,11 +43,14 @@ like to structure my projects.
 
 ## Templates
 
-| Template         | Description         | Key Features                                                 |
-| ---------------- | ------------------- | ------------------------------------------------------------ |
-| `go-service`     | Go microservice     | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload |
-| `python-service` | Python microservice | FastAPI, Click CLI, uv, structlog, Prometheus metrics        |
-| `python-cli`     | Python CLI tool     | PEP 723 simple script + structured package with subcommands  |
+| Template                     | Description             | Key Features                                                          |
+| ---------------------------- | ----------------------- | --------------------------------------------------------------------- |
+| `go-service`                 | Go microservice         | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload          |
+| `go-real-time-service`       | Go real-time web app    | Datastar over SSE, templ, embedded NATS JetStream, Tailwind/DaisyUI   |
+| `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
+| `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
+| `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2 + HTMX, Postgres, MinIO  |
+| `python-bayesian-experiment` | Bayesian experiments    | PyMC + ArviZ, MLflow tracking, FastAPI, Click CLI, tmux dev session   |
 
 All templates include: Makefile, Dockerfile, K8s manifests, `.gitignore`,
 `AGENTS.md`, `CHANGELOG.md`.
@@ -58,8 +61,11 @@ uv tool install cookiecutter
 
 # Create a project
 cookiecutter project-templates/go-service
+cookiecutter project-templates/go-real-time-service
 cookiecutter project-templates/python-service
 cookiecutter project-templates/python-cli
+cookiecutter project-templates/python-ducklake-service
+cookiecutter project-templates/python-bayesian-experiment
 
 # Validate templates
 ./project-templates/test-templates.py validate

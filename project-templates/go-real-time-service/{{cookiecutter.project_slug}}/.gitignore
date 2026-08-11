@@ -1,0 +1,31 @@
+# Binaries
+bin/
+*.exe
+
+# Build artifacts
+tmp/
+
+# Generated code. Not committed, so a build without codegen fails loudly
+# instead of silently compiling a stale template. Every make target that
+# compiles or runs the app regenerates these first.
+*_templ.go
+web/resources/static/index.css
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Development
+logs/
+!logs/.gitkeep
+data/
+!data/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

@@ -1,0 +1,21 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Regenerate templ code on every rebuild so tmp/main can never be stale.
+cmd = "go tool templ generate && go build -tags=dev -o ./tmp/main ./cmd/server"
+bin = "./tmp/main"
+args_bin = ["server"]
+delay = 300
+exclude_dir = ["tmp", "vendor", "bin", "logs", "data", "k8s", "web/resources/static"]
+include_ext = ["go", "templ", "html", "css"]
+# Ignore generated output so regeneration does not retrigger a build.
+exclude_regex = ["_test\\.go", "_templ\\.go"]
+stop_on_error = false
+kill_delay = "2s"
+
+[log]
+time = false
+
+[misc]
+clean_on_exit = true

@@ -74,6 +74,41 @@ make build && ./bin/my-service --help
 make run-dev  # Hot reload with logs to logs/server.log
 ```
 
+### go-real-time-service
+
+Go service for real-time hypermedia apps, in the style of
+[northstar](https://github.com/zangster300/northstar):
+
+- [Datastar](https://data-star.dev) over SSE — the server pushes HTML
+  fragments and signal patches down one long-lived GET
+- [templ](https://templ.guide) for typed HTML, with computation kept in Go
+  view structs so templates stay declarative
+- Embedded NATS JetStream as the state layer, memory-backed and stateless
+- `net/http` ServeMux and the same `adaptHandler` middleware chain as
+  `go-service` — no third-party router
+- Tailwind + DaisyUI via the `gotailwind` Go tool, so no npm anywhere
+- Live reload in dev; embedded, content-hashed assets in prod
+
+```bash
+cookiecutter path/to/project-templates/go-real-time-service
+cd my-service
+cp .env.example .env.server
+make setup      # deps, vendored client assets, codegen (needs network)
+make start-dev  # tmux: server + stylesheet watcher, tee'd to logs/
+```
+
+**Codegen is wired into the Makefile.** `**/*_templ.go` and `static/index.css`
+are generated from `.templ` and the Tailwind entrypoint, and are gitignored, so
+a bare `go build` fails on a fresh clone rather than compiling a stale
+template. `build`, `test`, and `lint` all depend on `generate`, and air
+regenerates on every rebuild, so editing a `.templ` file is enough. CI needs
+`make setup` before it compiles; the Dockerfile runs `make generate css` in its
+builder stage.
+
+Ships three demo features, one per real-time pattern — a KV-watch todo list
+(shared state), a system monitor (pure server push), and a counter (one-shot
+signal patches). Delete the ones you do not need.
+
 ### python-service
 
 Python service with modern tooling:
@@ -332,6 +367,36 @@ project-templates/
 │       │   └── .gitkeep
 │       └── data/                     # gitignored - local data
 │           └── .gitkeep
+├── go-real-time-service/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore              # generated *_templ.go / index.css are committed
+│       ├── AGENTS.md
+│       ├── CHANGELOG.md
+│       ├── README.md
+│       ├── Makefile
+│       ├── Dockerfile              # runs templ + tailwind in the builder
+│       ├── .air.toml               # build cmd re-runs templ generate
+│       ├── .env.example
+│       ├── go.mod                  # pins templ/air/gotailwind via `tool`
+│       ├── cmd/server/main.go
+│       ├── router/router.go        # joins feature slices, dev live-reload
+│       ├── internal/
+│       │   ├── httpx/              # adapter chain, middleware, JSON helpers
+│       │   └── broker/             # embedded NATS JetStream, memory KV
+│       ├── features/
+│       │   ├── common/             # base layout, nav, shared components
+│       │   ├── todos/              # KV watch -> fragment push
+│       │   ├── monitor/            # ticker -> signal push
+│       │   └── counter/            # one-shot signal patches
+│       ├── web/resources/
+│       │   ├── static_dev.go       # serve from disk
+│       │   ├── static_prod.go      # embed + content hash
+│       │   ├── static/             # vendored datastar.js, generated index.css
+│       │   └── styles/             # tailwind entry + daisyui plugin
+│       ├── k8s/prod/               # replicas: 1, no PVC, SSE-safe ingress
+│       ├── logs/                   # gitignored - dev logs
+│       └── data/                   # gitignored - local data
 ├── python-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -439,6 +504,8 @@ cookiecutter path/to/project-templates/python-service
 | Variable | Description    | Example                |
 | -------- | -------------- | ---------------------- |
 | `go_mod` | Go module path | "github.com/user/repo" |
+
+Both `go-service` and `go-real-time-service` use the same set.
 
 ### Python-specific Variables
 
@@ -1142,6 +1209,48 @@ Categories: Added, Changed, Deprecated, Removed, Fixed, Security
 }
 ```
 
+## Template Authoring Gotchas
+
+Cookiecutter renders every file through Jinja2, which claims `{{`, `{%`, and
+`{#`. Any of those sequences in template content must be escaped or the
+generation fails — often with a parse error pointing at a line that looks like
+perfectly ordinary source code.
+
+**Go composite literals are the common trap.** A nested slice-of-struct
+literal produces `{`+`{`:
+
+```go
+Todos: []Todo{{Text: "a"}, {Text: "b"}}   // breaks generation
+```
+
+Write one element per line instead; the newline separates the braces:
+
+```go
+Todos: []Todo{
+    {Text: "a"},
+    {Text: "b"},
+}
+```
+
+**Deliberate `{{ }}` needs `{% raw %}`,** as in the Makefile deploy targets
+that `sed` on `{{DOCKER_REPO}}` and `{{GIT_COMMIT_SHA}}`:
+
+```makefile
+sed -e "s;{% raw %}{{DOCKER_REPO}}{% endraw %};$(DOCKER_REGISTRY)/...;g"
+```
+
+**templ files are usually fine** as long as computation stays in Go. templ's
+`{{ ... }}` Go-code blocks collide with Jinja, but a template that only
+interpolates a precomputed view struct never needs them — which is also the
+more readable way to write them.
+
+To check a template before committing, grep for unescaped sequences:
+
+```bash
+grep -rn '{{\|{%\|{#' 'template/{{cookiecutter.project_slug}}' \
+  | grep -v 'cookiecutter\.' | grep -v 'raw %}'
+```
+
 ## Testing Templates
 
 Use the `test-templates.py` script to validate all templates:
@@ -1174,6 +1283,7 @@ The validation script tests:
 | `python-service` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, server `/healthz` |
 | `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
 | `python-bayesian-experiment` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, `experiments --help`, server `/healthz` |
+| `go-real-time-service` | `make help`, `make setup`, `go build` works on generated output, `make verify-generated`, `make build`, CLI `--help`, `make test`, server `/healthz`, SSE stream emits an element patch |
 
 ### Manual Testing
 
@@ -1237,6 +1347,16 @@ uv run test-cli foo do-something
   - [x] DuckDB/Ibis for data storage
   - [x] tmux dev session management
   - [x] Tests for server endpoints
+- [x] Create go-real-time-service template
+  - [x] Datastar SSE patterns: KV watch, server push, signal patches
+  - [x] templ views with computation in Go view structs
+  - [x] Embedded NATS JetStream, memory-backed and stateless
+  - [x] stdlib ServeMux with the shared adaptHandler middleware chain
+  - [x] Makefile + tmux + air dev loop, codegen wired into every target
+  - [x] Tailwind/DaisyUI via the gotailwind Go tool (no npm)
+  - [x] Dev/prod build tags for static assets, live reload in dev
+  - [x] K8s manifests (replicas: 1, no PVC, SSE-safe ingress annotations)
+  - [x] AGENTS.md, CHANGELOG.md, README.md
 - [x] Add test-templates.py validation script
 
 ### Remaining

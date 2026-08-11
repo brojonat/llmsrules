@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{cookiecutter.project_slug}}
+  namespace: {{cookiecutter.k8s_namespace}}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    # SSE streams stay open indefinitely and must not be buffered, otherwise
+    # updates arrive in batches or the connection is reaped mid-stream.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  rules:
+    - host: {{cookiecutter.project_slug}}.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{cookiecutter.project_slug}}
+                port:
+                  number: 80

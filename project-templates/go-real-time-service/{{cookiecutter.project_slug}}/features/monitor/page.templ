@@ -1,0 +1,41 @@
+package monitor
+
+import (
+	"{{cookiecutter.go_mod}}/features/common/components"
+	"{{cookiecutter.go_mod}}/features/common/layouts"
+)
+
+templ Page(title string) {
+	@layouts.Base(title) {
+		<main class="flex flex-col w-full min-h-screen" data-init="@get('/monitor/events')">
+			@components.Nav(components.PageMonitor)
+			<div class="card bg-base-200 shadow-xl mx-auto my-4 w-full max-w-2xl">
+				<div class="card-body gap-4">
+					<h1 class="card-title text-3xl font-bold">System monitor</h1>
+					<p class="text-sm opacity-70">
+						Pure server push. Nothing on this page is clickable -- a
+						ticker patches signals over SSE and Datastar re-renders
+						the bound text.
+					</p>
+					<div class="stats stats-vertical sm:stats-horizontal shadow">
+						@stat("Memory used", "memUsed")
+						@stat("Memory total", "memTotal")
+						@stat("Memory %", "memPercent")
+					</div>
+					<div class="stats stats-vertical sm:stats-horizontal shadow">
+						@stat("CPU user", "cpuUser")
+						@stat("CPU system", "cpuSystem")
+						@stat("CPU idle", "cpuIdle")
+					</div>
+				</div>
+			</div>
+		</main>
+	}
+}
+
+templ stat(title, signal string) {
+	<div class="stat">
+		<div class="stat-title">{ title }</div>
+		<div class="stat-value text-2xl font-mono" data-text={ "$" + signal }>&mdash;</div>
+	</div>
+}

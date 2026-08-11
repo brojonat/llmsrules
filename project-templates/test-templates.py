@@ -61,6 +61,11 @@ TEMPLATES = {
         "output": "test-ducklake-service",
         "vars": {"project_name": "Test Ducklake Service", "author": "testuser"},
     },
+    "realtime": {
+        "name": "go-real-time-service",
+        "output": "test-realtime-service",
+        "vars": {"project_name": "Test Realtime Service", "author": "testuser"},
+    },
 }
 
 
@@ -372,12 +377,88 @@ def validate_ducklake(project_dir: Path) -> None:
     success("python-ducklake-service validation complete")
 
 
+def validate_realtime(project_dir: Path) -> None:
+    """Validate go-real-time-service template."""
+    section("Validating go-real-time-service")
+
+    run_with_output("make help", cwd=project_dir)
+    success("make help works")
+
+    # Downloads datastar/daisyui, tidies modules, runs templ + tailwind.
+    # Needs network access.
+    run_with_output("make setup", cwd=project_dir)
+    success("make setup works")
+
+    # Generated output is gitignored. `make clean` removes it, and a bare
+    # `go build` must then fail -- that is what stops anyone compiling a stale
+    # template instead of the .templ file they just edited.
+    run_with_output("make clean", cwd=project_dir)
+    result = subprocess.run(
+        ["go", "build", "./..."], cwd=project_dir, capture_output=True, text=True
+    )
+    if result.returncode != 0 and "undefined" in result.stderr:
+        success("bare `go build` fails without codegen, as designed")
+    else:
+        warn("bare `go build` unexpectedly succeeded without codegen")
+
+    run_with_output("make build", cwd=project_dir)
+    success("make build works")
+
+    run_with_output("./bin/test-realtime-service --help", cwd=project_dir)
+    success("CLI --help works")
+
+    run_with_output("make test", cwd=project_dir)
+    success("make test works")
+
+    log("Starting server briefly...")
+    env = os.environ.copy()
+    env["SESSION_SECRET"] = "test"
+    server = subprocess.Popen(
+        ["./bin/test-realtime-service", "server", "--addr", ":18080"],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    time.sleep(3)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18080/healthz"],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            success("Server responds to /healthz")
+        else:
+            warn("Server health check failed")
+
+        # The point of the template: a GET that stays open and pushes HTML.
+        result = subprocess.run(
+            ["curl", "-sN", "-m", "3", "http://localhost:18080/api/todos"],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+        if "datastar-patch-elements" in result.stdout:
+            success("SSE stream pushes an element patch")
+        else:
+            warn("SSE stream produced no element patch")
+    except Exception:
+        warn("Server checks failed")
+    finally:
+        server.terminate()
+        server.wait()
+
+    success("go-real-time-service validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
     "cli": validate_python_cli,
     "bayesian": validate_bayesian,
     "ducklake": validate_ducklake,
+    "realtime": validate_realtime,
 }
 
 
@@ -395,7 +476,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -411,7 +492,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -479,6 +560,16 @@ def show() -> None:
     click.echo("  make start-dev     # Start tmux dev session")
     click.echo("  uv run <name> experiments list")
     click.echo("  make test")
+    click.echo()
+
+    click.echo(f"{BLUE}go-real-time-service:{NC}")
+    click.echo("  make help          # Show targets")
+    click.echo("  make setup         # Deps, client assets, codegen (needs network)")
+    click.echo("  make start-dev     # tmux session: server + css watcher")
+    click.echo("  make build         # generate + css + go build -tags=prod")
+    click.echo("  make test")
+    click.echo("  ./bin/<name> server")
+    click.echo("  # NOTE: never `go build` directly -- templ code is generated")
     click.echo()
 
     click.echo(f"{BLUE}python-ducklake-service:{NC}")

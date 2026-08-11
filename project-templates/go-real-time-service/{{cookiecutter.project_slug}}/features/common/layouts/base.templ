@@ -1,0 +1,28 @@
+package layouts
+
+import "{{cookiecutter.go_mod}}/web/resources"
+
+// Base is the outer HTML shell. Every page renders inside it.
+//
+// In dev builds it also opens an SSE connection to /reload; the server holds
+// that request open and pushes a `window.location.reload()` script whenever
+// air restarts the binary.
+templ Base(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title }</title>
+			<link rel="icon" href="data:,"/>
+			<link href={ resources.StaticPath("index.css") } rel="stylesheet" type="text/css"/>
+			<script defer type="module" src={ resources.StaticPath("datastar/datastar.js") }></script>
+		</head>
+		<body class="min-h-screen bg-base-100 text-base-content">
+			if resources.IsDev {
+				<div data-on-load="@get('/reload', {retryMaxCount: Infinity, retryInterval: 20, retryMaxWaitMs: 200})"></div>
+			}
+			{ children... }
+		</body>
+	</html>
+}

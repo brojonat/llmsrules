@@ -1,0 +1,44 @@
+package counter
+
+import (
+	"github.com/starfederation/datastar-go/datastar"
+
+	"{{cookiecutter.go_mod}}/features/common/components"
+	"{{cookiecutter.go_mod}}/features/common/layouts"
+)
+
+templ Page(title string) {
+	@layouts.Base(title) {
+		<main class="flex flex-col w-full min-h-screen" data-init="@get('/counter/data')">
+			@components.Nav(components.PageCounter)
+			<div class="card bg-base-200 shadow-xl mx-auto my-4 w-full max-w-2xl">
+				<div class="card-body gap-4">
+					<h1 class="card-title text-3xl font-bold">Counter</h1>
+					<p class="text-sm opacity-70">
+						Signals without a store. Each button fires a one-shot SSE
+						response that patches signals and closes -- no watcher,
+						no persistence.
+					</p>
+					<div class="stats stats-vertical sm:stats-horizontal shadow">
+						<div class="stat">
+							<div class="stat-title">Global (all visitors)</div>
+							<div class="stat-value font-mono" data-text="$global">0</div>
+						</div>
+						<div class="stat">
+							<div class="stat-title">Yours (this session)</div>
+							<div class="stat-value font-mono" data-text="$user">0</div>
+						</div>
+					</div>
+					<div class="flex gap-2">
+						<button class="btn btn-primary" data-on:click={ datastar.PostSSE("/counter/increment/global") }>
+							Increment global
+						</button>
+						<button class="btn btn-secondary" data-on:click={ datastar.PostSSE("/counter/increment/user") }>
+							Increment mine
+						</button>
+					</div>
+				</div>
+			</div>
+		</main>
+	}
+}

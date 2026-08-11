@@ -1,0 +1,24 @@
+package components
+
+type Page int
+
+const (
+	PageTodos Page = iota
+	PageCounter
+	PageMonitor
+)
+
+templ Nav(current Page) {
+	<nav class="flex justify-center py-4">
+		<ul class="menu menu-horizontal bg-base-200 rounded-box gap-1">
+			<li><a href="/" class={ templ.KV("menu-active", current == PageTodos) }>Todos</a></li>
+			<li><a href="/counter" class={ templ.KV("menu-active", current == PageCounter) }>Counter</a></li>
+			<li><a href="/monitor" class={ templ.KV("menu-active", current == PageMonitor) }>Monitor</a></li>
+		</ul>
+	</nav>
+}
+
+// Spinner shows while a Datastar request signalled by signalName is in flight.
+templ Spinner(signalName string) {
+	<span class="loading loading-spinner loading-sm opacity-0" data-class-opacity-100={ "$" + signalName }></span>
+}
