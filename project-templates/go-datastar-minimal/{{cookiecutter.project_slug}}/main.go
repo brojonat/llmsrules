@@ -6,25 +6,23 @@
 // every connected browser renders from the same server-side state, so a write
 // from any of them shows up in all of them.
 //
-// There are no dependencies. The Datastar SSE protocol is two event types and
-// a handful of lines, written out by hand below, so `go run .` works on a
-// fresh clone with no module downloads. The browser gets datastar.js from a
-// CDN via one script tag; there is no frontend build step.
+// There is one dependency: the official Datastar Go SDK, which handles the SSE
+// wire format, flushing, and signal decoding. The browser gets datastar.js from
+// a CDN via one script tag; there is no frontend build step and no codegen.
 //
 //	go run .   # then open http://localhost:8080 in two tabs
 package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/starfederation/datastar-go/datastar"
 )
 
 // ---------------------------------------------------------------------------
@@ -105,13 +103,17 @@ func (s *store) notify() {
   body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
   form { display: flex; gap: .5rem; margin: 1rem 0; }
   input { flex: 1; padding: .5rem; }
+  /* 16px minimum, or iOS Safari zooms the page when the input is focused. */
+  input, button { font-size: 1rem; }
   li { padding: .25rem 0; }
   footer { margin-top: 1rem; color: #666; font-size: .875rem; }
 </style>
 </head>
 <!-- The one long-lived read request. It never returns; the server pushes
-     every subsequent render down it. -->
-<body data-init="@get('/updates')">
+     every subsequent render down it. openWhenHidden keeps the stream alive
+     when the tab is backgrounded -- without it Datastar closes GET streams on
+     hide and reconnects on show, so a backgrounded tab goes stale. -->
+<body data-init="@get('/updates', {openWhenHidden: true})">
 {{template "board" .Messages}}
 </body>
 </html>
@@ -139,29 +141,6 @@ var board = template.Must(page.New("board").Parse(`<main id="board">
 `)){% endraw %}
 
 // ---------------------------------------------------------------------------
-// The Datastar SSE protocol, in full.
-// ---------------------------------------------------------------------------
-
-// patchElements sends an HTML fragment for the browser to morph into the DOM,
-// matched by its id. Multi-line HTML needs one data line per line.
-func patchElements(w io.Writer, html string) {
-	fmt.Fprint(w, "event: datastar-patch-elements\n")
-	for _, line := range strings.Split(strings.TrimRight(html, "\n"), "\n") {
-		fmt.Fprintf(w, "data: elements %s\n", line)
-	}
-	fmt.Fprint(w, "\n")
-}
-
-// readSignals decodes the browser's signals. Datastar sends them as a JSON
-// body on writes and as a ?datastar= query parameter on reads.
-func readSignals(r *http.Request, v any) error {
-	if r.Method == http.MethodGet {
-		return json.Unmarshal([]byte(r.URL.Query().Get("datastar")), v)
-	}
-	return json.NewDecoder(r.Body).Decode(v)
-}
-
-// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
@@ -183,9 +162,10 @@ func handleIndex(s *store, title string) http.Handler {
 // something changes, forever. It never renders in response to a request.
 func handleUpdates(s *store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		rc := http.NewResponseController(w)
+		// NewSSE writes the SSE headers and flushes every event it sends.
+		// Add datastar.WithCompression() to negotiate Brotli/gzip on the
+		// stream -- repetitive HTML compresses at ratios around 200:1.
+		sse := datastar.NewSSE(w, r)
 
 		changed, stop := s.watch()
 		defer stop()
@@ -197,13 +177,14 @@ func handleUpdates(s *store) http.Handler {
 				return
 			}
 
-			patchElements(w, buf.String())
-			if err := rc.Flush(); err != nil {
+			// One "data: elements" line per line of HTML; trim so the
+			// template's trailing newline does not become an empty one.
+			if err := sse.PatchElements(strings.TrimSpace(buf.String())); err != nil {
 				return // client went away
 			}
 
 			select {
-			case <-r.Context().Done():
+			case <-sse.Context().Done():
 				return
 			case <-changed:
 			}
@@ -218,7 +199,10 @@ func handleAdd(s *store) http.Handler {
 		var signals struct {
 			Message string `json:"message"`
 		}
-		if err := readSignals(r, &signals); err != nil {
+		// ReadSignals decodes the browser's signals: a JSON body on writes, a
+		// ?datastar= query parameter on reads. Always call it before NewSSE --
+		// upgrading the response first closes the body out from under it.
+		if err := datastar.ReadSignals(r, &signals); err != nil {
 			http.Error(w, "bad signals", http.StatusBadRequest)
 			return
 		}

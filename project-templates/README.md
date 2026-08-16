@@ -76,8 +76,8 @@ make run-dev  # Hot reload with logs to logs/server.log
 
 ### go-datastar-minimal
 
-The smallest thing that demonstrates [the Tao of Datastar][tao]: one file, zero
-dependencies, no build step.
+The smallest thing that demonstrates [the Tao of Datastar][tao]: one file, one
+dependency, no build step.
 
 ```bash
 cookiecutter path/to/project-templates/go-datastar-minimal
@@ -85,10 +85,13 @@ cd my-app
 go run .   # open http://localhost:8080 in two tabs
 ```
 
-`main.go` holds the state, the templates, the SSE protocol, and four routes.
-There is no `go.sum` — the Datastar wire format is two event types, written out
-by hand, so `go run .` works on a fresh clone with no module downloads. The
-browser loads `datastar.js` from a CDN in one script tag.
+`main.go` holds the state, the templates, and four routes. The one dependency is
+the official [Datastar Go SDK](https://github.com/starfederation/datastar-go),
+which owns the SSE wire format, flushing, and signal decoding —
+`datastar.NewSSE`, `sse.PatchElements`, and `datastar.ReadSignals` are the whole
+surface used. `go.mod` and `go.sum` are committed so `go run .` works on a fresh
+clone with no `go mod tidy` step. The browser loads `datastar.js` from a CDN in
+one script tag.
 
 It exists to make the architecture legible before the production concerns pile
 on. State lives on the server; `GET /updates` is a single long-lived SSE read
@@ -100,6 +103,39 @@ Reach for `go-real-time-service` instead when you want templ, per-session
 state, metrics, and a Kubernetes deployment.
 
 [tao]: https://data-star.dev/guide/the_tao_of_datastar
+
+### python-datastar-minimal
+
+The same architecture as `go-datastar-minimal`, in Python: one file, no
+packaging, no build step.
+
+```bash
+cookiecutter path/to/project-templates/python-datastar-minimal
+cd my-app
+./main.py   # open http://localhost:8000 in two tabs
+```
+
+`main.py` holds the state, the templates, and four routes. Dependencies —
+[`datastar-py`](https://github.com/starfederation/datastar-python), Starlette,
+uvicorn, Jinja2 — are declared in a PEP 723 block at the top of the file, so
+`uv` resolves them on first run and there is no `pyproject.toml`, lockfile, or
+virtualenv to manage. The browser loads `datastar.js` from a CDN in one script
+tag.
+
+Like the Go template it leans on the official SDK rather than hand-rolling the
+wire format: `SSE.patch_elements()`, `read_signals()`, and a
+`@datastar_response` async generator are the whole surface. Same CQRS shape —
+`GET /updates` is a single long-lived read that never returns, `POST /add`
+mutates and answers `204` and renders nothing.
+
+Two things bite people here and are called out in the generated README:
+`read_signals()` returns `None` unless the request carries the
+`Datastar-Request` header that `datastar.js` sends (so hand-rolled `curl` writes
+silently do nothing), and `networkidle` never fires on a page holding an open
+SSE stream (so browser automation must wait on an element instead).
+
+Reach for `python-service` instead when you want FastAPI, structlog, metrics,
+and a Kubernetes deployment.
 
 ### go-real-time-service
 
@@ -399,8 +435,15 @@ project-templates/
 │   └── {{cookiecutter.project_slug}}/
 │       ├── .gitignore
 │       ├── README.md
-│       ├── go.mod                  # no requires, no go.sum
-│       └── main.go                 # state, templates, SSE protocol, 4 routes
+│       ├── go.mod                  # one require: datastar-go
+│       ├── go.sum                  # committed, so `go run .` needs no tidy
+│       └── main.go                 # state, templates, 4 routes
+├── python-datastar-minimal/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore
+│       ├── README.md
+│       └── main.py                 # PEP 723 deps, state, templates, 4 routes
 ├── go-real-time-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1315,7 +1358,8 @@ The validation script tests:
 | `python-service` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, server `/healthz` |
 | `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
 | `python-bayesian-experiment` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, `experiments --help`, server `/healthz` |
-| `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/README/`.gitignore`, no `go.sum`, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
+| `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/`go.sum`/README/`.gitignore`, builds with no tidy step, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
+| `python-datastar-minimal` | file set is exactly `main.py`/README/`.gitignore`, PEP 723 block present, `./main.py` serves the page, `POST /add` lands on the SSE read stream |
 | `go-real-time-service` | `make help`, `make setup`, `go build` works on generated output, `make verify-generated`, `make build`, CLI `--help`, `make test`, server `/healthz`, SSE stream emits an element patch |
 
 ### Manual Testing
@@ -1381,8 +1425,15 @@ uv run test-cli foo do-something
   - [x] tmux dev session management
   - [x] Tests for server endpoints
 - [x] Create go-datastar-minimal template
-  - [x] Single-file server, zero dependencies, runs with `go run .`
-  - [x] Datastar SSE protocol written by hand (patch-elements + signal reads)
+  - [x] Single-file server, one dependency, runs with `go run .`
+  - [x] Official `datastar-go` SDK: `NewSSE`, `PatchElements`, `ReadSignals`
+  - [x] `go.mod`/`go.sum` committed so a fresh clone needs no tidy step
+  - [x] CQRS loop: one long-lived read, short-lived writes returning 204
+  - [x] Multiplayer by construction, verified across two browser contexts
+- [x] Create python-datastar-minimal template
+  - [x] Single-file server, PEP 723 deps, runs with `./main.py`
+  - [x] Official `datastar-py` SDK: `patch_elements`, `read_signals`, `@datastar_response`
+  - [x] Jinja2 renders first paint and every fragment from one `board.html`
   - [x] CQRS loop: one long-lived read, short-lived writes returning 204
   - [x] Multiplayer by construction, verified across two browser contexts
 - [x] Create go-real-time-service template

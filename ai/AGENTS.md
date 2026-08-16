@@ -211,6 +211,14 @@ If the project later grows a new capability, add the corresponding
 `npx skills add ... -s ... -y` line and re-run the script — don't reach for
 the whole-repo shortcut.
 
+## Mobile Web
+
+- **Set `font-size: 16px` on all form inputs (`<input>`, `<select>`,
+  `<textarea>`).** iOS Safari auto-zooms the page when a user focuses an input
+  with font-size below 16px. This is disorienting and the user has to
+  manually pinch-zoom back out. 16px is the threshold that suppresses the
+  behavior — never go below it on any touch-accessible page.
+
 ## When In Doubt
 
 Ask: *"Does this add essential value, or does it just add complexity?"* If you

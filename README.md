@@ -46,15 +46,17 @@ like to structure my projects.
 | Template                     | Description             | Key Features                                                          |
 | ---------------------------- | ----------------------- | --------------------------------------------------------------------- |
 | `go-service`                 | Go microservice         | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload          |
-| `go-datastar-minimal`        | Real-time app, one file | Datastar over SSE, zero deps, no build step, `go run .`               |
+| `go-datastar-minimal`        | Real-time app, one file | Datastar over SSE, `datastar-go` SDK, no build step, `go run .`      |
 | `go-real-time-service`       | Go real-time web app    | Datastar over SSE, templ, embedded NATS JetStream, Tailwind/DaisyUI   |
+| `python-datastar-minimal`    | Real-time app, one file | Datastar over SSE, PEP 723 deps, no build step, `./main.py`          |
 | `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
 | `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
 | `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2 + HTMX, Postgres, MinIO  |
 | `python-bayesian-experiment` | Bayesian experiments    | PyMC + ArviZ, MLflow tracking, FastAPI, Click CLI, tmux dev session   |
 
 All templates include: Makefile, Dockerfile, K8s manifests, `.gitignore`,
-`AGENTS.md`, `CHANGELOG.md`.
+`AGENTS.md`, `CHANGELOG.md` — except the two `*-datastar-minimal` templates,
+which are deliberately a single source file plus a README.
 
 ```bash
 # Install cookiecutter
@@ -64,6 +66,7 @@ uv tool install cookiecutter
 cookiecutter project-templates/go-service
 cookiecutter project-templates/go-datastar-minimal
 cookiecutter project-templates/go-real-time-service
+cookiecutter project-templates/python-datastar-minimal
 cookiecutter project-templates/python-service
 cookiecutter project-templates/python-cli
 cookiecutter project-templates/python-ducklake-service
@@ -154,6 +157,7 @@ npx skills add brojonat/llmsrules
 | `bubbletea`        | Go TUIs with Bubble Tea (Model/Update/View), Bubbles, Lipgloss      |
 | `statistical-process-control` | XmR / control charts: frozen limits, signal rules, derived streams |
 | `urfave-cli`       | Go CLIs with urfave/cli v3: subcommands, flags, env, completion     |
+| `datastar`         | Real-time hypermedia over SSE: the Tao, `data-*`, CQRS, Python + Go |
 
 ### Third-party skills I like
 

@@ -71,6 +71,11 @@ TEMPLATES = {
         "output": "test-datastar-minimal",
         "vars": {"project_name": "Test Datastar Minimal", "author": "testuser"},
     },
+    "pyminimal": {
+        "name": "python-datastar-minimal",
+        "output": "test-py-datastar-minimal",
+        "vars": {"project_name": "Test Py Datastar Minimal", "author": "testuser"},
+    },
 }
 
 
@@ -461,17 +466,24 @@ def validate_minimal(project_dir: Path) -> None:
     """Validate go-datastar-minimal template."""
     section("Validating go-datastar-minimal")
 
-    # The whole promise of this template: one file, no deps, no setup step.
+    # The whole promise of this template: one source file, no setup step.
     files = sorted(p.name for p in project_dir.iterdir() if p.is_file())
-    if files == [".gitignore", "README.md", "go.mod", "main.go"]:
-        success("template is exactly main.go + go.mod + README + .gitignore")
+    if files == [".gitignore", "README.md", "go.mod", "go.sum", "main.go"]:
+        success("template is exactly main.go + go.mod + go.sum + README + .gitignore")
     else:
         warn(f"unexpected file set: {files}")
 
-    if not (project_dir / "go.sum").exists():
-        success("no go.sum -- zero dependencies")
+    # go.mod/go.sum are committed so `go run .` needs no `go mod tidy` first.
+    result = subprocess.run(
+        ["go", "build", "-o", os.devnull, "."],
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        success("builds from the committed go.mod/go.sum -- no tidy step")
     else:
-        warn("go.sum present; the template picked up a dependency")
+        warn(f"build needed a tidy step: {result.stderr.strip()}")
 
     run_with_output("gofmt -l .", cwd=project_dir)
     run_with_output("go vet ./...", cwd=project_dir)
@@ -528,6 +540,80 @@ def validate_minimal(project_dir: Path) -> None:
     success("go-datastar-minimal validation complete")
 
 
+def validate_py_minimal(project_dir: Path) -> None:
+    """Validate python-datastar-minimal template."""
+    section("Validating python-datastar-minimal")
+
+    # The whole promise of this template: one file, no packaging, no setup step.
+    files = sorted(p.name for p in project_dir.iterdir() if p.is_file())
+    if files == [".gitignore", "README.md", "main.py"]:
+        success("template is exactly main.py + README + .gitignore")
+    else:
+        warn(f"unexpected file set: {files}")
+
+    main_py = project_dir / "main.py"
+    if "# /// script" in main_py.read_text():
+        success("deps are declared inline (PEP 723) -- no pyproject, no lockfile")
+    else:
+        warn("PEP 723 script block missing")
+
+    main_py.chmod(0o755)
+
+    log("Starting server briefly (first run resolves deps)...")
+    env = os.environ.copy()
+    env["PORT"] = "18100"
+    server = subprocess.Popen(
+        ["./main.py"],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    time.sleep(12)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18100/"],
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if result.returncode == 0 and 'id="board"' in result.stdout:
+            success("`./main.py` serves the page")
+        else:
+            warn("page did not render")
+
+        # Write, then confirm the read stream carries it back. read_signals()
+        # ignores requests without the header datastar.js always sends.
+        subprocess.run(
+            ["curl", "-sf", "-X", "POST",
+             "-H", "Datastar-Request: true",
+             "-H", "Content-Type: application/json",
+             "-d", '{"message":"from curl"}',
+             "http://localhost:18100/add"],
+            capture_output=True,
+            timeout=5,
+        )
+        result = subprocess.run(
+            ["curl", "-sN", "-m", "3", "http://localhost:18100/updates"],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+        if "datastar-patch-elements" in result.stdout and "from curl" in result.stdout:
+            success("POST /add lands on the SSE read stream")
+        else:
+            warn("SSE stream did not carry the write")
+    except Exception:
+        warn("Server checks failed")
+    finally:
+        server.terminate()
+        server.wait()
+        # `uv run --script` execs a child; make sure the listener is really gone.
+        subprocess.run(["pkill", "-f", "test-py-datastar-minimal"], capture_output=True)
+
+    success("python-datastar-minimal validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -536,6 +622,7 @@ VALIDATORS = {
     "ducklake": validate_ducklake,
     "realtime": validate_realtime,
     "minimal": validate_minimal,
+    "pyminimal": validate_py_minimal,
 }
 
 
@@ -553,7 +640,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -569,7 +656,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -642,6 +729,11 @@ def show() -> None:
     click.echo(f"{BLUE}go-datastar-minimal:{NC}")
     click.echo("  go run .           # that is the whole dev loop")
     click.echo("  # open http://localhost:8080 in two tabs")
+    click.echo()
+
+    click.echo(f"{BLUE}python-datastar-minimal:{NC}")
+    click.echo("  ./main.py          # that is the whole dev loop (PEP 723)")
+    click.echo("  # open http://localhost:8000 in two tabs")
     click.echo()
 
     click.echo(f"{BLUE}go-real-time-service:{NC}")
