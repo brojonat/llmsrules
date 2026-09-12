@@ -48,6 +48,7 @@ like to structure my projects.
 | `go-service`                 | Go microservice         | stdlib HTTP handlers, urfave/cli, sqlc, slog, Air hot reload          |
 | `go-datastar-minimal`        | Real-time app, one file | Datastar over SSE, `datastar-go` SDK, no build step, `go run .`      |
 | `go-real-time-service`       | Go real-time web app    | Datastar over SSE, templ, embedded NATS JetStream, Tailwind/DaisyUI   |
+| `go-local-app`               | Local app in a browser  | One `go install` binary: urfave/cli, embedded NATS JetStream KV, Datastar over SSE, `html/template`, diagnostics dashboard, `/metrics` |
 | `python-datastar-minimal`    | Real-time app, one file | Datastar over SSE, PEP 723 deps, no build step, `./main.py`          |
 | `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
 | `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
@@ -66,6 +67,7 @@ uv tool install cookiecutter
 cookiecutter project-templates/go-service
 cookiecutter project-templates/go-datastar-minimal
 cookiecutter project-templates/go-real-time-service
+cookiecutter project-templates/go-local-app
 cookiecutter project-templates/python-datastar-minimal
 cookiecutter project-templates/python-service
 cookiecutter project-templates/python-cli

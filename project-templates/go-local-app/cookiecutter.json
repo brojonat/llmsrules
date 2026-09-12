@@ -1,0 +1,9 @@
+{
+  "project_name": "My Local App",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
+  "description": "A local app that runs in the browser",
+  "author": "Your Name",
+  "go_mod": "github.com/{{ cookiecutter.author.lower().replace(' ', '') }}/{{ cookiecutter.project_slug }}",
+  "env_prefix": "{{ cookiecutter.project_slug.upper().replace('-', '_') }}",
+  "default_port": "8080"
+}
