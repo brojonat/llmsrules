@@ -81,8 +81,9 @@ Keep `logs/` gitignored. The value is the feedback loop, not the artifacts.
 ## Project Bookkeeping (for the Ralph Wiggum loop)
 
 Every project keeps four living documents at the root so an agent with empty
-context can bootstrap itself in a few reads. Update them after every major
-task — they are the state handoff between sessions.
+context can bootstrap itself in a few reads. They are the state handoff
+between sessions, so they get updated when a session winds down, not as
+work happens.
 
 - **`README.md`** — For humans and agents. Describes the interface: what this
   project does, how to build/run/test it, the primary commands, and the
@@ -105,10 +106,16 @@ task — they are the state handoff between sessions.
   with enough context that the next agent avoids the same ditch. Frame each
   entry as: *what happened, why it was surprising, how to avoid it.*
 
-**After every major task, update all four files as needed.** An agent starting
-fresh should be able to read `README.md` → `TODO.md` → `LEARNINGS.md` (in that
-order) and be immediately productive. That's the Ralph Wiggum loop: any agent,
-any time, zero prior context, still shipping.
+**Don't touch these files during normal work.** Update them only when the
+user says the session is winding down (e.g. "let's wrap up", "wind down",
+"update the docs"). At that point, review what changed over the whole
+session and update all four files as needed in one pass. Batching avoids
+churn and noisy diffs, and the entries read better when written with the
+full session in view.
+
+An agent starting fresh should be able to read `README.md` → `TODO.md` →
+`LEARNINGS.md` (in that order) and be immediately productive. That's the
+Ralph Wiggum loop: any agent, any time, zero prior context, still shipping.
 
 ## Language Idioms
 
