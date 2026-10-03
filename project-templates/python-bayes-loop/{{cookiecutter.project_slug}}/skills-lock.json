@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "arviz-diagnostics": {
+      "source": "pymc-labs/python-analytics-skills",
+      "sourceType": "github",
+      "skillPath": "skills/arviz-diagnostics/SKILL.md",
+      "computedHash": "16becd765566052602ca007a39fd819f97ef8762b7edc2a2511f91b167f1d0ca"
+    },
+    "bayesian-regression": {
+      "source": "brojonat/llmsrules",
+      "sourceType": "github",
+      "skillPath": "skills/bayesian-regression/SKILL.md",
+      "computedHash": "86f48c5684dae223ce9a840dc3865a8ffaf7f428a70d2173e41b775b82ff4d24"
+    },
+    "datastar": {
+      "source": "brojonat/llmsrules",
+      "sourceType": "github",
+      "skillPath": "skills/datastar/SKILL.md",
+      "computedHash": "a1838c986bdc58189f7e7dd778dca68e44ffb0ba6bca743b2d072577d0e626c6"
+    },
+    "k8s-deployment": {
+      "source": "brojonat/llmsrules",
+      "sourceType": "github",
+      "skillPath": "skills/k8s-deployment/SKILL.md",
+      "computedHash": "4932f333bf6c80b56ed8765719906aefa0bf842c77ae3f8c115e2550b874c39b"
+    },
+    "prior-elicitation": {
+      "source": "pymc-labs/python-analytics-skills",
+      "sourceType": "github",
+      "skillPath": "skills/prior-elicitation/SKILL.md",
+      "computedHash": "8c8ce4a39a5b4e4c8e87935e0241bca920153c4ec43d340685080e8f934f0eea"
+    },
+    "pymc-modeling": {
+      "source": "pymc-labs/python-analytics-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pymc-modeling/SKILL.md",
+      "computedHash": "54621817d1bc5565e5747f29788635289def2fcbc409e99a0d0014d3804b5f3b"
+    },
+    "pytensor-workflows": {
+      "source": "pymc-labs/python-analytics-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pytensor-workflows/SKILL.md",
+      "computedHash": "f7e0634b99a5f215d1d0d7c3b9cf9d740427111054005ef5124dc710a3c6127e"
+    }
+  }
+}

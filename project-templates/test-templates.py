@@ -18,6 +18,7 @@ Usage:
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -80,6 +81,11 @@ TEMPLATES = {
         "name": "python-warehouse-dashboard",
         "output": "test-warehouse-dashboard",
         "vars": {"project_name": "Test Warehouse Dashboard", "author": "testuser"},
+    },
+    "bayesloop": {
+        "name": "python-bayes-loop",
+        "output": "test-bayes-loop",
+        "vars": {"project_name": "Test Bayes Loop", "author": "testuser"},
     },
 }
 
@@ -700,6 +706,100 @@ def validate_warehouse(project_dir: Path) -> None:
     success("python-warehouse-dashboard validation complete")
 
 
+def validate_bayes_loop(project_dir: Path) -> None:
+    """Validate python-bayes-loop template (on CPU: JAX_PLATFORMS=cpu)."""
+    section("Validating python-bayes-loop")
+    cli_name = "test-bayes-loop"
+    # Call the venv's binaries directly: mise's [env] would override these
+    # through the uv shim (see the template's LEARNINGS.md).
+    env = {**os.environ, "JAX_PLATFORMS": "cpu", "QUACK_URL": "quack:localhost:19494", "QUACK_TOKEN": "test-token"}
+    exe = str(project_dir / ".venv" / "bin" / cli_name)
+
+    if shutil.which("mise"):
+        run_with_output(["mise", "trust", "-q", "."], cwd=project_dir)
+        run_with_output(["mise", "tasks"], cwd=project_dir)
+        success("mise tasks lists the front door")
+    else:
+        warn("mise not installed; running the tasks' commands directly")
+
+    run_with_output(["uv", "sync"], cwd=project_dir)
+    success("uv sync works")
+
+    run_with_output([exe, "--help"], cwd=project_dir)
+    success("CLI --help works")
+
+    run_with_output(["uv", "run", "ruff", "check", "src", "tests"], cwd=project_dir)
+    run_with_output(["uv", "run", "ruff", "format", "--check", "src", "tests"], cwd=project_dir)
+    success("lint works")
+
+    subprocess.run([str(project_dir / ".venv" / "bin" / "pytest"), "-q"], cwd=project_dir, env=env, check=True)
+    success("tests pass (includes feed -> db -> sample over Quack)")
+
+    log("Running the belt briefly on CPU (db, feed, sample, serve)...")
+    (project_dir / "logs").mkdir(exist_ok=True)
+    procs = []
+    try:
+        for args in (
+            ["db", "--path", "data/belt.duckdb"],
+            ["feed", "--n", "1000", "--dim", "group=3", "--dim", "feature=2", "--every", "1"],
+            ["sample", "--chains", "16", "--warmup", "100", "--draws", "20", "--latest"],
+            ["plots"],
+            ["serve", "--port", "18765"],
+        ):
+            procs.append(subprocess.Popen([exe, *args], cwd=project_dir, env=env,
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            time.sleep(1)
+        base = "http://127.0.0.1:18765"
+        deadline = time.time() + 120
+        page = ""
+        while time.time() < deadline:
+            r = subprocess.run(["curl", "-sf", base + "/"], capture_output=True, timeout=10, text=True)
+            page = r.stdout
+            if "<chart-forest" in page and "<model-graph" in page:
+                break
+            time.sleep(3)
+        if "<chart-forest" in page and "<model-graph" in page and "Test Bayes Loop" in page:
+            success("a fit lands and the dashboard renders it with the model graph")
+        else:
+            warn("no fit on the dashboard within 120s")
+        # The figures: the plots service renders the first fit's set into the carousel.
+        deadline = time.time() + 90
+        while time.time() < deadline:
+            r = subprocess.run([exe, "figures"], cwd=project_dir, env=env, capture_output=True, text=True)
+            if "ppc:obs" in r.stdout:
+                break
+            time.sleep(3)
+        if "ppc:obs" in r.stdout and 'class="carousel"' in subprocess.run(
+            ["curl", "-sf", base + "/"], capture_output=True, timeout=10, text=True
+        ).stdout:
+            success("the plots service renders figures into the dashboard's carousel")
+        else:
+            warn("no figures within 90s")
+        # The agent thread: a note from the CLI shows up on the dashboard.
+        subprocess.run([exe, "note", "validation note"], cwd=project_dir, env=env, check=True, capture_output=True)
+        time.sleep(3)
+        r = subprocess.run(["curl", "-sf", base + "/"], capture_output=True, timeout=10, text=True)
+        if "validation note" in r.stdout:
+            success("an agent note lands in the dashboard's thread")
+        else:
+            warn("the agent note did not show on the dashboard")
+        for path, needle in [("/healthz", "ok"), ("/metrics", "dashboard_belt_up 1")]:
+            r = subprocess.run(["curl", "-sf", base + path], capture_output=True, timeout=10, text=True)
+            if needle in r.stdout:
+                success(f"{path} works")
+            else:
+                warn(f"{path} did not answer as expected")
+    finally:
+        for p in reversed(procs):  # db last, so it checkpoints after its clients are gone
+            p.send_signal(signal.SIGINT)
+            try:
+                p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                p.kill()
+
+    success("python-bayes-loop validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -710,6 +810,7 @@ VALIDATORS = {
     "minimal": validate_minimal,
     "pyminimal": validate_py_minimal,
     "warehouse": validate_warehouse,
+    "bayesloop": validate_bayes_loop,
 }
 
 
@@ -727,7 +828,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -743,7 +844,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -839,6 +940,14 @@ def show() -> None:
     click.echo("  mise run build     # generate the synthetic feed + build the warehouse")
     click.echo("  mise run dev       # hot reload, tees logs/serve.log")
     click.echo("  mise run test")
+    click.echo()
+
+    click.echo(f"{BLUE}python-bayes-loop:{NC}")
+    click.echo("  mise tasks         # the front door (not make)")
+    click.echo("  mise run setup     # uv sync")
+    click.echo("  mise run check-gpu # want: gpu [CudaDevice(id=0)]")
+    click.echo("  mise run up        # db + feed + sample + dashboard (mise run up:cpu without a GPU)")
+    click.echo("  mise run test      # CPU")
     click.echo()
 
     click.echo(f"{BLUE}python-ducklake-service:{NC}")

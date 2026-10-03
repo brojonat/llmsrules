@@ -1,0 +1,15 @@
+resources:
+- app.yaml
+- ingress.yaml
+
+# Secrets are generated from a gitignored file; nothing credential-shaped is
+# committed or baked into the image.
+secretGenerator:
+- name: {{cookiecutter.project_slug}}-envs
+  envs:
+  - ../../.env.prod
+
+generatorOptions:
+  # A stable name, so the pod's secretRef doesn't need re-templating.
+  # Rolling the secret therefore needs `mise run k8s-restart`.
+  disableNameSuffixHash: true

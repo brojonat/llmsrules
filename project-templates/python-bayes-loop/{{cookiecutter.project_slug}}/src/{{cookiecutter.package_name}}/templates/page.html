@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ app_name }}</title>
+<!-- datastar-rocket.js = Datastar + Rocket web components. Pinned, no build step. -->
+<script type="importmap">
+{"imports": {
+  "datastar": "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar-rocket.js",
+  "d3": "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm",
+  "graphviz": "https://cdn.jsdelivr.net/npm/@hpcc-js/wasm-graphviz@1.29.2/dist/index.js"
+}}
+</script>
+<script type="module" src="/static/components.js"></script>
+<style>
+  /* Palette from python-warehouse-dashboard (validated with dataviz validate_palette.js). */
+  :root { color-scheme: light dark;
+          --surface: #fcfcfb; --ink: #1d1d1b; --ink-muted: #898781; --series-1: #2a78d6;
+          --baseline: #c3c2b7; --grid: #e7e6df; --status-warning: #fab219; --status-critical: #d03b3b; --status-ok: #2f9e44; }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface: #181817; --ink: #e9e8e3; --series-1: #3987e5; --baseline: #383835; --grid: #2a2a28; } }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 72rem; margin: 0 auto; padding: 1rem; background: var(--surface); color: var(--ink); }
+  header { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  h2 { margin: 1.5rem 0 .25rem; font-size: 1.05rem; }
+  .muted { color: var(--ink-muted); font-size: .9rem; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: .75rem; margin: 1rem 0; }
+  .tile { display: flex; flex-direction: column; padding: .75rem .9rem; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); min-width: 0; }
+  .tile.warn { border-color: var(--status-warning); }
+  .tile .label { font-size: .85rem; color: var(--ink-muted); }
+  .tile .value { font-size: 1.6rem; font-weight: 600; line-height: 1.2; margin: .1rem 0 .3rem; font-variant-numeric: tabular-nums; }
+  .tile .unit { font-size: .85rem; font-weight: 400; color: var(--ink-muted); margin-left: .15rem; }
+  .tile .flag { font-size: .8rem; font-weight: 600; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 1.5rem; }
+  .facets { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .5rem 1rem; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .85rem; color: var(--ink-muted); align-items: center; }
+  .legend svg { vertical-align: middle; margin-right: .3rem; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: .9rem; }
+  th, td { text-align: right; padding: .3rem .5rem; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-weight: 600; font-size: .8rem; color: var(--ink-muted); }
+  .scroll { overflow-x: auto; }
+  .empty { padding: 3rem 1rem; text-align: center; color: var(--ink-muted); }
+  code { font-size: .85rem; background: color-mix(in srgb, currentColor 8%, transparent); padding: .1em .3em; border-radius: 3px; }
+  model-graph { min-height: 160px; } chart-grid { min-height: 200px; }
+  chart-forest { min-height: 200px; }
+  /* model: diagram beside Claude's description, stacked on narrow screens */
+  .model-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1.5rem; align-items: center; margin: 1rem 0 .5rem; }
+  @media (max-width: 760px) { .model-grid { grid-template-columns: 1fr; } }
+  .model-grid figure { margin: 0; }
+  .model-grid figcaption { text-align: center; font-size: .8rem; }
+  .note h2 { margin-top: 0; }
+  .note p { margin: 0 0 .75rem; line-height: 1.6; }
+  .note .byline { font-size: .8rem; }
+  .caret { display: inline-block; width: .5em; height: 1.1em; margin-left: .1em; vertical-align: text-bottom;
+           background: var(--series-1); animation: blink 1s steps(2, start) infinite; }
+  @keyframes blink { to { visibility: hidden; } }
+  @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+  /* agent thread: the agent's notes and your feedback, newest last */
+  .thread { list-style: none; padding: 0; margin: .5rem 0; max-height: 28rem; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: .5rem; }
+  .msg { padding: .5rem .75rem; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); max-width: 52rem; }
+  .msg.user { align-self: flex-end; border-color: var(--series-1); }
+  .msg.report, .msg.commit, .msg.approve { border-width: 2px; }
+  .msg .meta { font-size: .8rem; color: var(--ink-muted); }
+  /* agent activity: pulsing while it works, steady amber while it waits for you, grey when quiet */
+  .activity { font-size: .9rem; font-weight: 400; margin-left: .5rem; color: var(--ink-muted); }
+  .activity .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .4rem; vertical-align: middle; background: var(--baseline); }
+  .activity.working .dot { background: var(--status-ok); }
+  .activity.waiting { color: var(--ink); } .activity.waiting .dot { background: var(--status-warning); }
+  .dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-ok) 60%, transparent); }
+                     50% { box-shadow: 0 0 0 .45rem transparent; opacity: .7; } }
+  @media (prefers-reduced-motion: reduce) { .dot.pulse { animation: none; } }
+  .msg .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* figures: one at a time, up to three pinned side by side for comparison */
+  .carousel .slide { margin: 0; }
+  .carousel img, .pins img { width: 100%; max-height: 60vh; object-fit: contain; background: #fff; border-radius: 6px; }
+  .carousel figcaption { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .4rem; font-size: .9rem; }
+  .carousel figcaption .title { flex: 1 1 16rem; }
+  .carousel button, .pins button, .carousel a { font-size: 16px; padding: .25rem .7rem; border-radius: 6px; cursor: pointer; color: inherit; background: transparent;
+                                                 border: 1px solid color-mix(in srgb, currentColor 30%, transparent); text-decoration: none; }
+  .pins { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .75rem; margin: .5rem 0 1rem; }
+  .pins figure { margin: 0; padding: .5rem; border: 2px solid var(--series-1); border-radius: 8px; }
+  .pins img { max-height: 32vh; }
+  .pins figcaption { display: flex; justify-content: space-between; gap: .5rem; font-size: .85rem; margin-top: .3rem; }
+  .thumbs { display: flex; gap: .4rem; overflow-x: auto; padding: .5rem 0; }
+  .thumbs img { height: 3.5rem; border-radius: 4px; cursor: pointer; opacity: .55; background: #fff; border: 2px solid transparent; }
+  .thumbs img.active { opacity: 1; border-color: var(--series-1); }
+  #feedback-form { display: flex; flex-direction: column; gap: .5rem; margin: .5rem 0 1rem; }
+  /* 16px: iOS Safari zooms into smaller inputs */
+  #feedback-form textarea { font: 16px/1.4 system-ui, sans-serif; padding: .5rem; border-radius: 6px; color: inherit; background: transparent;
+                            border: 1px solid color-mix(in srgb, currentColor 25%, transparent); resize: vertical; }
+  #feedback-form .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+  #feedback-form button { font-size: 16px; padding: .4rem .9rem; border-radius: 6px; cursor: pointer; color: inherit; background: transparent;
+                          border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+  #feedback-form button[type=submit] { background: var(--series-1); border-color: var(--series-1); color: #fff; } chart-track { min-height: 120px; } chart-spark { min-height: 36px; }
+</style>
+</head>
+<body data-signals="{fig: '', pins: []}"
+      data-init="$pins = JSON.parse(localStorage.getItem('figure-pins') || '[]'); @get('/stream', {openWhenHidden: true})"
+      data-effect="localStorage.setItem('figure-pins', JSON.stringify($pins))">
+<header><h1>{{ app_name }}</h1><span class="muted">posterior on a belt: feed → DuckDB/Quack → sampler → here</span></header>
+{{ model|safe }}
+{{ agent|safe }}
+{% if can_write %}
+<form id="feedback-form" data-signals="{feedback: ''}" data-on:submit="@post('/messages'); $feedback = ''">
+  <textarea data-bind:feedback rows="3" aria-label="Feedback for the agent"
+            placeholder="Feedback for the agent: what to change, what to look at next. It reads this with {{ cli }} inbox."></textarea>
+  <div class="actions">
+    <button type="submit">Send</button>
+    <button type="button" data-on:click="@post('/approve')">Approve the current model</button>
+  </div>
+</form>
+{% else %}
+<p class="muted">Feedback and approval are only open from the machine the agent runs on here (<code>FEEDBACK_FROM=local</code>).</p>
+{% endif %}
+{{ dashboard|safe }}
+{{ figures|safe }}
+</body>
+</html>

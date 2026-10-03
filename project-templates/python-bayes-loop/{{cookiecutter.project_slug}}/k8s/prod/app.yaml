@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{cookiecutter.project_slug}}
+  labels:
+    app: {{cookiecutter.project_slug}}
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: {{cookiecutter.project_slug}}
+---
+# The belt's database file and the XLA compile cache (so a restarted sampler
+# skips recompiling). One writer process owns the file, hence one pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{cookiecutter.project_slug}}-belt
+  labels:
+    app: {{cookiecutter.project_slug}}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{cookiecutter.project_slug}}
+  labels:
+    app: {{cookiecutter.project_slug}}
+spec:
+  # One pod, four containers sharing localhost: Quack only serves localhost,
+  # and its clients insist on HTTPS for any other host. Recreate, so two pods
+  # never open the belt's file at once.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{cookiecutter.project_slug}}
+  template:
+    metadata:
+      labels:
+        app: {{cookiecutter.project_slug}}
+    spec:
+      # The sampler's GPU limit schedules this pod onto a GPU node. Clients
+      # retry until the db container is serving, so start order doesn't matter.
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: db
+        image: "{% raw %}{{DOCKER_REPO}}{% endraw %}/{{cookiecutter.project_slug}}:{% raw %}{{IMG_TAG}}{% endraw %}"
+        imagePullPolicy: Always
+        args: ["db"]
+        envFrom:
+        - secretRef:
+            name: {{cookiecutter.project_slug}}-envs
+        volumeMounts:
+        - name: belt
+          mountPath: /data
+        resources:
+          requests: {cpu: 200m, memory: 512Mi}
+          limits: {cpu: "2", memory: 4Gi}
+      - name: feed
+        image: "{% raw %}{{DOCKER_REPO}}{% endraw %}/{{cookiecutter.project_slug}}:{% raw %}{{IMG_TAG}}{% endraw %}"
+        imagePullPolicy: Always
+        args: ["feed"]
+        envFrom:
+        - secretRef:
+            name: {{cookiecutter.project_slug}}-envs
+        volumeMounts:
+        - name: belt
+          mountPath: /data
+        # Demo data: delete this container once a real source writes batches.
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {cpu: "1", memory: 1Gi}
+      - name: sample
+        image: "{% raw %}{{DOCKER_REPO}}{% endraw %}/{{cookiecutter.project_slug}}:{% raw %}{{IMG_TAG}}{% endraw %}"
+        imagePullPolicy: Always
+        args: ["sample"]
+        envFrom:
+        - secretRef:
+            name: {{cookiecutter.project_slug}}-envs
+        volumeMounts:
+        - name: belt
+          mountPath: /data
+        resources:
+          requests: {cpu: "1", memory: 4Gi}
+          limits:
+            cpu: "4"
+            memory: 16Gi
+            nvidia.com/gpu: 1
+      - name: dashboard
+        image: "{% raw %}{{DOCKER_REPO}}{% endraw %}/{{cookiecutter.project_slug}}:{% raw %}{{IMG_TAG}}{% endraw %}"
+        imagePullPolicy: Always
+        args: ["serve"]
+        envFrom:
+        - secretRef:
+            name: {{cookiecutter.project_slug}}-envs
+        volumeMounts:
+        - name: belt
+          mountPath: /data
+        ports:
+        - containerPort: 8080
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {cpu: "1", memory: 1Gi}
+        readinessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          periodSeconds: 30
+      volumes:
+      - name: belt
+        persistentVolumeClaim:
+          claimName: {{cookiecutter.project_slug}}-belt

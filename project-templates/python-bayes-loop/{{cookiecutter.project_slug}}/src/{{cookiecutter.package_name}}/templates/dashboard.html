@@ -1,0 +1,87 @@
+<main id="dashboard">
+{% if empty %}
+  {% if schema_error %}
+  <p class="empty">The belt's tables don't match this version: <code>{{ schema_error }}</code>.
+    Stop the belt, then <code>mise run reset</code> (<code>reset:cpu</code> for the CPU profile).</p>
+  {% elif offline %}
+  <p class="empty">Can't reach the belt at <code>{{ offline }}</code>. Is <code>db</code> running? Check <code>logs/db.log</code>.</p>
+  {% elif waiting %}
+  <p class="empty">No fits yet, but {{ waiting|num }} batches are waiting (oldest {{ oldest_s|num(0) }} s).
+    Is <code>sample</code> running? Check <code>logs/sample.log</code>.</p>
+  {% else %}
+  <p class="empty">No fits yet. Start the belt: <code>mise run up</code> (or <code>db</code>, <code>feed</code>, <code>sample</code> separately).</p>
+  {% endif %}
+{% else %}
+{% set f = latest %}
+<p class="muted">{{ f.sampler }} on {{ f.device }} · {{ f.chains }} chains × {{ f.draws }} draws · n = {{ f.n|num }} per batch ·
+  last fit {{ age_s|num(1) }} s ago</p>
+<section class="tiles">
+  <div class="tile"><span class="label">Fits</span>
+    <span class="value">{{ totals.fits|num }}</span><span class="muted">{{ totals.last_min }} in the last minute</span></div>
+  <div class="tile"><span class="label">Fit time</span>
+    <span class="value">{{ f.fit_s|num }}<span class="unit">s</span></span>
+    <chart-spark series='{{ spark.fit_s|tojson }}' unit=" s" label="fit time per fit"></chart-spark></div>
+  <div class="tile"><span class="label">Min ESS / s</span>
+    <span class="value">{{ ess_per_s|num }}</span>
+    <chart-spark series='{{ spark.ess_per_s|tojson }}' label="min ESS per second per fit"></chart-spark></div>
+  <div class="tile {{ 'warn' if f.max_rhat > 1.05 }}"><span class="label">Max R̂</span>
+    <span class="value">{{ f.max_rhat|num(3) }}{% if f.max_rhat > 1.05 %} <span class="flag">⚠ check</span>{% endif %}</span>
+    <chart-spark series='{{ spark.max_rhat|tojson }}' label="max R-hat per fit" ref="1.01"></chart-spark></div>
+  {% if has_truth %}
+  <div class="tile"><span class="label">90% interval coverage</span>
+    <span class="value">{{ (coverage * 100)|num(0) }}<span class="unit">%</span></span>
+    <chart-spark series='{{ spark.coverage|tojson }}' label="share of true values inside the 90% interval, per fit" ref="0.9"></chart-spark></div>
+  {% endif %}
+  <div class="tile {{ 'warn' if queued > 5 }}"><span class="label">Lag · queued</span>
+    <span class="value">{{ f.lag_s|num(1) }}<span class="unit">s</span> · {{ queued }}</span>
+    <chart-spark series='{{ spark.lag_s|tojson }}' unit=" s" label="seconds from batch landing to fit written"></chart-spark></div>
+  <div class="tile"><span class="label">Divergences</span>
+    <span class="value">{{ f.divergences }}</span><span class="muted">{{ f.grad_evals|num }} gradient evals</span></div>
+</section>
+
+<div class="legend">
+  <span><svg width="34" height="10"><line x1="2" x2="32" y1="5" y2="5" stroke="var(--series-1)" stroke-width="2" stroke-linecap="round"/><line x1="10" x2="24" y1="5" y2="5" stroke="var(--series-1)" stroke-width="7" stroke-linecap="round"/></svg>posterior 90% / 50% interval</span>
+  {% if has_truth %}
+  <span><svg width="14" height="14"><path d="M7,1L13,7L7,13L1,7Z" fill="none" stroke="var(--ink)" stroke-width="1.5"/></svg>truth (simulated)</span>
+  <span><svg width="26" height="10"><line x1="1" x2="25" y1="5" y2="5" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>truth across fits</span>
+  {% endif %}
+</div>
+<div class="grid2">
+  <section>
+    <h2>Latest fit</h2>
+    <chart-forest rows='{{ forest|tojson }}' label="posterior intervals for {{ view.forest|join(', ') }}, latest fit"></chart-forest>
+  </section>
+  <section>
+    <h2>{{ 'Tracking the drifting truth' if has_truth else 'Across fits' }} <span class="muted">· last {{ spark.fit_s|length }} fits</span></h2>
+    <div class="facets">
+    {% for name, points in panels.items() %}
+      <chart-track label="{{ name }}" points='{{ points|tojson }}' y-min="{{ track_y[0] }}" y-max="{{ track_y[1] }}"></chart-track>
+    {% endfor %}
+    </div>
+  </section>
+</div>
+
+{% if view.grid %}{% set g = view.grid %}
+<section>
+  <h2>{{ g.var }} by {{ g.rows }} and {{ g.cols }} <span class="muted">· latest fit, one shared scale</span></h2>
+  <chart-grid rows='{{ grid|tojson }}' row-labels='{{ grid_rows|tojson }}' col-labels='{{ grid_cols|tojson }}'
+              label="posterior intervals of {{ g.var }} for each {{ g.rows }} and {{ g.cols }}, latest fit"></chart-grid>
+</section>
+{% endif %}
+
+<h2>Recent fits</h2>
+<div class="scroll"><table>
+  <thead><tr><th>batch</th><th>fit s</th><th>lag s</th><th>min ESS</th><th>max R̂</th><th>div</th><th>grad evals</th><th>compile s</th></tr></thead>
+  <tbody>
+  {% for r in recent %}
+    <tr><td>{{ r.batch_id % 1000000 }}</td><td>{{ r.fit_s|num }}</td><td>{{ r.lag_s|num(1) }}</td><td>{{ r.min_ess|num }}</td>
+        <td>{{ r.max_rhat|num(3) }}</td><td>{{ r.divergences }}</td><td>{{ r.grad_evals|num }}</td><td>{{ r.compile_s|num }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<details><summary class="muted">Latest fit as a table</summary><div class="scroll"><table>
+  <thead><tr><th>param</th><th>5%</th><th>25%</th><th>median</th><th>75%</th><th>95%</th><th>R̂</th>{% if has_truth %}<th>truth</th>{% endif %}</tr></thead>
+  <tbody>{% for r in forest %}<tr><td>{{ r.name }}</td><td>{{ r.q05|num }}</td><td>{{ r.q25|num }}</td><td>{{ r.q50|num }}</td><td>{{ r.q75|num }}</td><td>{{ r.q95|num }}</td><td>{{ r.rhat|num(3) }}</td>{% if has_truth %}<td>{{ r.truth|num }}</td>{% endif %}</tr>{% endfor %}</tbody>
+</table></div></details>
+{% endif %}
+</main>

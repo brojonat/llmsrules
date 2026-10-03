@@ -1,0 +1,220 @@
+# mise is the front door: `mise tasks` lists everything, `mise run <task>`.
+# Extra arguments are appended to a task's command; tasks that tee wrap the
+# command in a function so appended args land on the command, not on tee.
+# `tee -i`: Ctrl-C reaches the whole process group; tee must outlive the service
+# to record its shutdown.
+
+[tools]
+claude = "latest"
+uv = "latest"
+
+[env]
+BELT_DB = "data/belt.duckdb"
+QUACK_URL = "quack:localhost"
+QUACK_TOKEN = "{{cookiecutter.project_slug}}-dev"
+PORT = "{{cookiecutter.default_port}}"
+# Dashboard listens on all interfaces, no auth. The Quack db stays on localhost:
+# its token grants writes.
+HOST = "0.0.0.0"
+# Who can send the agent feedback and approve models from the dashboard: "any"
+# (everyone who can reach HOST:PORT) or "local" (this machine). Feedback steers
+# an agent with a shell, so use "local" on a network you don't trust.
+FEEDBACK_FROM = "any"
+# Persistent XLA cache: a new process with an unchanged model and shapes skips XLA compilation.
+JAX_COMPILATION_CACHE_DIR = "{% raw %}{{{% endraw %}config_root}}/.jax_cache"
+JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS = "0"
+# Don't let XLA grab 75% of VRAM up front; allocate as needed.
+XLA_PYTHON_CLIENT_PREALLOCATE = "false"
+# Last, so .env overrides the defaults above (a real QUACK_TOKEN, another PORT or
+# QUACK_URL for a second checkout). Profiles (mise.cpu.toml) still override .env.
+_.file = { path = ".env", redact = false }
+
+[tasks.setup]
+description = "Install dependencies into .venv (JAX on CPU; no CUDA download)"
+run = "uv sync"
+
+[tasks."setup:gpu"]
+description = "Install dependencies with JAX's CUDA build (~3.5 GB of NVIDIA wheels)"
+run = "uv sync --extra gpu"
+
+[tasks.check-gpu]
+description = "Show the devices JAX can see (needs mise run setup:gpu for a GPU)"
+run = 'uv run python -c "import jax; print(jax.default_backend(), jax.devices())"'
+
+[tasks.test]
+description = "Run tests (CPU)"
+env = { JAX_PLATFORMS = "cpu" }
+run = 'f() { uv run pytest -q "$@"; }; f'
+
+[tasks.skills]
+description = "Install the agent skills in install-skills.sh at their latest versions (updates skills-lock.json)"
+run = "./install-skills.sh"
+
+# --- Your model (see .agents/skills/new-model) --------------------------------
+
+[tasks.prepare]
+description = "Run prepare.sql: raw data -> the parquet file that feed --from replays"
+run = '''
+test -f prepare.sql || { echo "no prepare.sql; see .agents/skills/new-model/SKILL.md" >&2; exit 1; }
+mkdir -p data
+uv run python -c "import duckdb; duckdb.connect().execute(open('prepare.sql').read())"
+'''
+
+# The agent's side of the dashboard. Tasks, so they always get this project's
+# QUACK_URL and token (a bare `uv run {{cookiecutter.project_slug}} note` outside mise doesn't).
+
+[tasks.note]
+description = "Post to the dashboard's agent thread: mise run note \"Changing X because Y\" (- reads stdin)"
+run = 'f() { uv run {{cookiecutter.project_slug}} note "$@"; }; f'
+
+[tasks.inbox]
+description = "The dashboard user's unread messages, JSON per line; mise run inbox --wait 540 blocks for one"
+run = 'f() { uv run {{cookiecutter.project_slug}} inbox "$@"; }; f'
+
+[tasks.describe]
+description = "Set the dashboard's description of the current model version: mise run describe - < description.md"
+run = 'f() { uv run {{cookiecutter.project_slug}} describe "$@"; }; f'
+
+[tasks.figure]
+description = "Add a PNG to the dashboard's figures: mise run figure plot.png --title \"...\""
+run = 'f() { uv run {{cookiecutter.project_slug}} figure "$@"; }; f'
+
+[tasks.figures]
+description = "The dashboard's figures, JSON per line; mise run figures --save DIR writes the PNGs to look at"
+run = 'f() { uv run {{cookiecutter.project_slug}} figures "$@"; }; f'
+
+[tasks.source]
+description = "The model.py a model version was compiled from: mise run source v3"
+run = 'f() { uv run {{cookiecutter.project_slug}} source "$@"; }; f'
+
+[tasks.check-model]
+description = "The model contract (tests/test_model.py + logp checks): run after every edit to model.py, then mise run test"
+env = { JAX_PLATFORMS = "cpu" }
+run = 'f() { uv run pytest -q tests/test_model.py tests/test_compile.py "$@"; }; f'
+
+[tasks.lint]
+description = "ruff check + format check"
+run = ["uv run ruff check src tests", "uv run ruff format --check src tests"]
+
+[tasks.fmt]
+description = "ruff fix + format"
+run = ["uv run ruff check --fix src tests", "uv run ruff format src tests"]
+
+# --- The belt -----------------------------------------------------------------
+
+[tasks.db]
+description = "Own data/belt.duckdb and serve it over Quack, tee to logs/db.log"
+run = 'mkdir -p logs data; f() { uv run {{cookiecutter.project_slug}} db "$@" 2>&1 | tee -i logs/db.log; }; f'
+
+[tasks.feed]
+description = "Insert a batch every second (simulated, or --from FILE / FEED_FROM), tee to logs/feed.log"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} feed "$@" 2>&1 | tee -i logs/feed.log; }; f'
+
+[tasks.sample]
+description = "Fit each new batch (GPU, or CPU under MISE_ENV=cpu), tee to logs/sample.log"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} sample "$@" 2>&1 | tee -i logs/sample.log; }; f'
+
+[tasks.plots]
+description = "Render the dashboard's figures for each model version's latest fit, tee to logs/plots.log"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} plots "$@" 2>&1 | tee -i logs/plots.log; }; f'
+
+[tasks.dev]
+description = "Dashboard on $HOST:$PORT with hot reload, tee to logs/serve.log"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} serve --reload --replace "$@" 2>&1 | tee -i logs/serve.log; }; f'
+
+[tasks.up]
+description = "db + feed + sample + plots + dev, in parallel (Ctrl-C stops all)"
+depends = ["db", "feed", "sample", "plots", "dev"]
+
+[tasks."up:cpu"]
+description = "up, on CPU with a small problem (mise.cpu.toml): for when the GPU is unavailable"
+run = "MISE_ENV=cpu mise run up"
+
+[tasks.loop]
+description = "The belt in tmux, one window per service: mise run loop [up|restart NAME|status|down]"
+run = 'f() { scripts/loop.sh "$@"; }; f'
+
+[tasks."loop:cpu"]
+description = "loop, on the CPU profile (mise.cpu.toml): mise run loop:cpu [up|restart NAME|status|down]"
+run = 'f() { MISE_ENV=cpu scripts/loop.sh "$@"; }; f'
+
+[tasks.stop]
+description = "Stop this checkout's {{cookiecutter.project_slug}} processes (orphaned dev servers included)"
+run = 'pkill -INT -f "$MISE_PROJECT_ROOT/[.]venv/bin/{{cookiecutter.project_slug}} " || true'
+
+
+[tasks.query]
+description = "SQL against the belt, run on the server: mise run query 'select count(*) from fits'"
+run = '''f() { uv run python -c "
+import sys, os, json
+from {{cookiecutter.package_name}} import belt
+con = belt.connect(os.environ['QUACK_URL'], os.environ['QUACK_TOKEN'], wait_s=5)
+for row in belt.read(con, sys.argv[1]).to_pylist(): print(json.dumps(row, default=str))
+" "$@"; }; f'''
+
+[tasks.reset]
+description = "Delete the belt database at $BELT_DB (stop db first; MISE_ENV=cpu for the CPU one)"
+run = 'rm -f "$BELT_DB" "$BELT_DB.wal"'
+
+[tasks."reset:cpu"]
+description = "Delete the CPU profile's belt database (stop up:cpu first)"
+run = "MISE_ENV=cpu mise run reset"
+
+# --- Benchmarks ----------------------------------------------------------------
+
+[tasks.bench]
+description = "Compare samplers on the default device, JSON lines to logs/bench.jsonl"
+run = '''
+mkdir -p logs; : > logs/bench.jsonl
+uv run {{cookiecutter.project_slug}} bench --sampler nuts --chains 8 2>>logs/bench.err | tee -a logs/bench.jsonl
+uv run {{cookiecutter.project_slug}} bench --sampler chees --chains 256 --warmup 300 --draws 50 2>>logs/bench.err | tee -a logs/bench.jsonl
+uv run {{cookiecutter.project_slug}} bench --sampler pymc-numpyro --chains 8 2>>logs/bench.err | tee -a logs/bench.jsonl
+JAX_PLATFORMS=cpu uv run {{cookiecutter.project_slug}} bench --sampler pymc --chains 4 2>>logs/bench.err | tee -a logs/bench.jsonl
+'''
+
+# --- Deployment ---------------------------------------------------------------
+#
+# One image, one pod: db, sample (GPU), dashboard and feed are containers that
+# talk to the belt over localhost (see LEARNINGS "Quack is localhost-only").
+# Images go to $DOCKER_REPO/{{cookiecutter.project_slug}}:<git hash>. Commit first: the tag is the commit.
+
+[tasks.docker-build]
+description = "Build the image as $DOCKER_REPO/{{cookiecutter.project_slug}}:<git hash>"
+run = 'docker build -t "${DOCKER_REPO:-{{cookiecutter.docker_repo}}}/{{cookiecutter.project_slug}}:$(git rev-parse --short HEAD)" .'
+
+[tasks.docker-push]
+description = "Build and push the image"
+depends = ["docker-build"]
+run = 'docker push "${DOCKER_REPO:-{{cookiecutter.docker_repo}}}/{{cookiecutter.project_slug}}:$(git rev-parse --short HEAD)"'
+
+[tasks.k8s-preview]
+description = "Render the manifests without applying them"
+run = "deploy/render.sh"
+
+[tasks.deploy]
+description = "Push the image for HEAD and apply the manifests (needs .env.prod)"
+depends = ["docker-push"]
+run = '''
+set -e
+test -f .env.prod || { echo ".env.prod is missing; see .env.prod.example" >&2; exit 1; }
+test -z "$(git status --porcelain -- src deploy Dockerfile pyproject.toml uv.lock k8s)" \
+  || { echo "uncommitted changes in shipped files; commit first (the image tag is the commit)" >&2; exit 1; }
+deploy/render.sh | kubectl apply -f -
+kubectl rollout status deployment/{{cookiecutter.project_slug}} --timeout=600s
+'''
+
+[tasks.k8s-status]
+description = "Deployment, pod, service, ingress and volume"
+run = "kubectl get deployment,pod,svc,ingress,pvc -l app={{cookiecutter.project_slug}}"
+
+[tasks.k8s-logs]
+description = "Tail one container's logs: mise run k8s-logs sample (db, feed, sample, dashboard)"
+run = 'f() { kubectl logs -f deployment/{{cookiecutter.project_slug}} -c "${1:-dashboard}"; }; f'
+
+[tasks.k8s-restart]
+description = "Restart the pod (picks up a changed secret)"
+run = "kubectl rollout restart deployment/{{cookiecutter.project_slug}} && kubectl rollout status deployment/{{cookiecutter.project_slug}} --timeout=600s"
+
+[tasks.k8s-delete]
+description = "Remove everything this project deployed (the belt's volume too)"
+run = "deploy/render.sh | kubectl delete --ignore-not-found -f -"

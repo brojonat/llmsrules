@@ -1,0 +1,26 @@
+__pycache__/
+*.py[oc]
+build/
+dist/
+*.egg-info
+.venv
+.ruff_cache/
+.pytest_cache/
+
+# Secrets: .env (dev), .env.prod (deploy)
+.env*
+!.env.example
+!.env.prod.example
+
+# Local belt database, XLA compile cache, dev logs
+data/
+.jax_cache/
+logs/
+.scratch/
+
+# Agent skills: install-skills.sh installs them; skills-lock.json pins them.
+# The project's own skill (new-model) is committed.
+.agents/skills/*
+!.agents/skills/new-model/
+.claude/skills/*
+!.claude/skills/new-model

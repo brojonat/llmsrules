@@ -55,12 +55,13 @@ like to structure my projects.
 | `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
 | `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2 + HTMX, Postgres, MinIO  |
 | `python-bayesian-experiment` | Bayesian experiments    | PyMC + ArviZ, MLflow tracking, FastAPI, Click CLI, tmux dev session   |
+| `python-bayes-loop`          | Agent-built Bayesian models | Hand an agent a dataset + problem; it builds a PyMC model (new-model skill, model contract) that refits per batch on a DuckDB belt over Quack (compiled once to JAX, ChEES/NUTS), while you watch and steer on a Datastar dashboard (agent thread, feedback, approve → commit), tmux loop, one-pod GPU k8s, mise |
 
 All templates include: a task runner, Dockerfile, K8s manifests,
 `.gitignore`, `AGENTS.md`, `CHANGELOG.md` — except the two
 `*-datastar-minimal` templates, which are deliberately a single source file
-plus a README. The task runner is `mise.toml` in `python-warehouse-dashboard`
-and a Makefile in the older templates; mise is the default going forward (see
+plus a README. The task runner is `mise.toml` in `python-warehouse-dashboard` and
+`python-bayes-loop`, and a Makefile in the older templates; mise is the default going forward (see
 `AGENTS.md`).
 
 ```bash
@@ -78,6 +79,7 @@ cookiecutter project-templates/python-service
 cookiecutter project-templates/python-cli
 cookiecutter project-templates/python-ducklake-service
 cookiecutter project-templates/python-bayesian-experiment
+cookiecutter project-templates/python-bayes-loop
 
 # Validate templates
 ./project-templates/test-templates.py validate
@@ -172,7 +174,8 @@ npx skills add brojonat/llmsrules
 | ----------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
 | [anthropics/skills](https://github.com/anthropics/skills)               | Anthropic official        | `frontend-design`, `pdf`, `docx`, `xlsx`, `pptx`, `skill-creator`                                 |
 | [obra/superpowers](https://github.com/obra/superpowers)                 | Dev methodology           | `systematic-debugging`, `test-driven-development`, `dispatching-parallel-agents`, `writing-plans` |
-| [pymc-labs/agent-skills](https://github.com/pymc-labs/agent-skills)     | Probabilistic programming | `pymc-modeling` (Bayesian stats, PyMC v5+, ArviZ, BART), `marimo-notebooks`                       |
+| [pymc-labs/python-analytics-skills](https://github.com/pymc-labs/python-analytics-skills) | Probabilistic programming | `pymc-modeling` (PyMC 6+, ArviZ 1), `prior-elicitation`, `arviz-diagnostics`, `pytensor-workflows`; the source of PyMC Labs' skills on [Decision Hub](https://hub.decision.ai/orgs/pymc-labs) |
+| [pymc-labs/agent-skills](https://github.com/pymc-labs/agent-skills)     | Probabilistic programming | `marimo-notebooks`; its `pymc-modeling` is the older PyMC v5 one                                   |
 | [marimo-team/skills](https://github.com/marimo-team/skills)             | marimo notebooks          | `marimo-notebook`, `jupyter-to-marimo`, `streamlit-to-marimo`, `anywidget`, `implement-paper`     |
 | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) | React / Next.js           | `vercel-react-best-practices`, `web-design-guidelines`, `deploy-to-vercel`                        |
 | [supabase/agent-skills](https://github.com/supabase/agent-skills)       | PostgreSQL                | `supabase-postgres-best-practices`                                                                |
