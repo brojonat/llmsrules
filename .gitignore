@@ -1,4 +1,4 @@
-# Installed skills (reproducible via skills-lock.json)
-.agents/
-.claude/skills/
-.cursor/skills/
+# Installed skills (reproducible via skills-lock.json), at the repo root only: templates ship their own
+/.agents/
+/.claude/skills/
+/.cursor/skills/
