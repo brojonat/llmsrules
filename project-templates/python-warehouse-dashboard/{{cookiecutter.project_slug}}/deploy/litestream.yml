@@ -1,0 +1,11 @@
+# Replicates the app database (feedback, LLM usage) to S3/R2. Env vars come
+# from the Kubernetes secret (.env.prod); run.sh skips litestream when they're unset.
+dbs:
+  - path: ${APP_DB}
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_BUCKET}
+        path: {{cookiecutter.project_slug}}/app.sqlite
+        endpoint: ${LITESTREAM_ENDPOINT}
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}

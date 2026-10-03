@@ -1,0 +1,72 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{cookiecutter.project_slug}}
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - {{cookiecutter.domain}}
+    secretName: {{cookiecutter.project_slug}}-tls
+  rules:
+  - host: {{cookiecutter.domain}}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: {{cookiecutter.project_slug}}
+            port:
+              number: 80
+---
+# /admin (diagnostics, its SSE stream and threshold commands) and /metrics
+# sit behind HTTP basic auth. Traefik routes the longer path prefix here. The
+# browser asks for the password once and then sends it with every same-origin
+# request under /admin, including Datastar's fetch-based SSE stream and PUTs.
+# Nothing in the app knows about auth.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{cookiecutter.project_slug}}-admin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: default-{{cookiecutter.project_slug}}-admin-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - {{cookiecutter.domain}}
+    secretName: {{cookiecutter.project_slug}}-tls
+  rules:
+  - host: {{cookiecutter.domain}}
+    http:
+      paths:
+      - pathType: Prefix
+        path: /admin
+        backend:
+          service:
+            name: {{cookiecutter.project_slug}}
+            port:
+              number: 80
+      - pathType: Exact
+        path: /metrics
+        backend:
+          service:
+            name: {{cookiecutter.project_slug}}
+            port:
+              number: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{cookiecutter.project_slug}}-admin-auth
+spec:
+  basicAuth:
+    secret: {{cookiecutter.project_slug}}-admin-auth
+    realm: {{cookiecutter.project_slug}} admin
+    removeHeader: true

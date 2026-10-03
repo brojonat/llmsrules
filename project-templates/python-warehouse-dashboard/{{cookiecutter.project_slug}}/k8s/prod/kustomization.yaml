@@ -1,0 +1,21 @@
+resources:
+- server.yaml
+- ingress.yaml
+
+# Secrets are generated from gitignored files; nothing credential-shaped is
+# committed or baked into the image.
+secretGenerator:
+# LLM and litestream keys (see .env.prod.example).
+- name: {{cookiecutter.project_slug}}-envs
+  envs:
+  - ../../.env.prod
+# htpasswd lines for /admin and /metrics (Traefik basicAuth). Written by
+# `mise run admin-htpasswd` from ADMIN_USER / ADMIN_PASSWORD in .env.admin.
+- name: {{cookiecutter.project_slug}}-admin-auth
+  files:
+  - users=../../.admin-htpasswd
+
+generatorOptions:
+  # Stable names, so the workloads' secretRefs don't need re-templating.
+  # Rolling a secret therefore needs `mise run k8s-restart`.
+  disableNameSuffixHash: true

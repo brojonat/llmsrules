@@ -1,0 +1,20 @@
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# Secrets: .env (dev), .env.prod and .env.admin (deploy), the htpasswd built from .env.admin
+.env*
+!.env.example
+!.env.prod.example
+.admin-htpasswd
+
+# Local data (raw feed, warehouse, app DB) and dev logs
+data/
+logs/
+.scratch/

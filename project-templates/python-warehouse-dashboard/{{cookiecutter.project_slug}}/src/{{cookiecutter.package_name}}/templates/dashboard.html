@@ -1,0 +1,85 @@
+<main id="dashboard">
+{% if not ready %}
+<p class="empty">No warehouse yet. Run <code>mise run build</code> (generate, then build); this page updates by itself when it lands.</p>
+{% else %}
+<section class="tiles" aria-label="totals">
+  {% for label, value, unit in tiles %}
+  <article class="tile"><div class="label">{{ label }}</div><div class="value">{{ value }}<span class="unit">{{ unit }}</span></div></article>
+  {% endfor %}
+</section>
+
+<h2>Tickets opened per year · {{ scope_no_years }}</h2>
+{# Shows every year whatever the years selection: this is where you choose
+   them. Drag across bars to select a range; click a bar to toggle a year. #}
+<chart-bars id="year-bars" series='{{ year_series | tojson }}' highlight="{{ this_year }}" highlight-note="year to date"
+            unit=" tickets" label="Tickets opened per year, {{ scope_no_years }}"
+            selectable="true" selected='{{ filter.years | map("string") | list | tojson }}'
+            data-on:chart-range="el.classList.add('loading'); @post('/filter/range', {payload: evt.detail})"
+            data-on:chart-toggle="el.classList.add('loading'); @post('/filter/toggle', {payload: {dim: 'years', value: evt.detail.value}})"></chart-bars>
+<p class="muted hint">Drag across the bars to select years; click one to add or remove it.{% if filter.years %} Selected: {{ years_text }}.{% endif %}</p>
+
+<section aria-label="map">
+{% set mm = metrics | selectattr("key", "equalto", map_metric) | first %}
+<div class="row map-head">
+  <h2>By state · {{ mm.label | lower }} · {{ scope_no_states }}</h2>
+  <div class="map-controls">
+  {% for kind, title in [("volume", "Volume"), ("quality", "Quality")] %}
+    <div class="segmented" role="group" aria-label="{{ title }}">
+    {% for m in metrics if m.kind == kind %}
+      <button type="button" aria-pressed="{{ 'true' if m.key == map_metric else 'false' }}"
+              {% if not m.available %}disabled title="{{ m.why }}"{% endif %}
+              data-on:click="el.classList.add('loading'); @post('/filter', {payload: {metric: '{{ m.key }}'}})">{{ m.label }}</button>
+    {% endfor %}
+    </div>
+  {% endfor %}
+  </div>
+</div>
+<chart-map id="state-map" series='{{ state_series | tojson }}' metric="{{ map_metric }}" unit="{{ mm.unit }}"
+           noun="ticket" selected="{{ filter.states | join(',') }}" min-count="{{ min_tickets }}"
+           label="{{ mm.label }} by state, {{ scope_no_states }}"
+           data-on:chart-state="el.classList.add('loading'); @post('/filter/toggle', {payload: {dim: 'states', value: evt.detail.state}})"></chart-map>
+{# Sentences joined explicitly: trim_blocks eats the newline after each tag. #}
+{% set notes = ["Customer's home state."] %}
+{% if map_metric == "per_capita" %}
+  {% do notes.append("Annualized: tickets in the window ÷ 2020 Census population ÷ the years the window covers (a partial year counts as the fraction the data covers).") %}
+{% elif map_metric == "index" %}
+  {% do notes.append("1× means your selection's tickets are spread like everyone's (same years); 2× means twice as concentrated in that state.") %}
+{% elif map_metric == "resolution" %}
+  {% do notes.append("Mean hours from opened to resolved, over resolved tickets.") %}
+{% elif map_metric == "csat" %}
+  {% do notes.append("Mean survey score (1–5) over the tickets whose customer answered.") %}
+{% elif map_metric == "escalation" %}
+  {% do notes.append("Share of tickets handed to a specialist team.") %}
+{% endif %}
+{% if map_metric != "count" %}
+  {% do notes.append("States with fewer than " ~ min_tickets ~ " tickets are hatched: too few to rate.") %}
+{% endif %}
+{% do notes.append("Click states to add them to your dataset (the map itself always shows every state); click again to remove.") %}
+<p class="muted">{{ notes | join(" ") }}</p>
+</section>
+
+<div class="cols">
+<section>
+  <h2>Categories</h2>
+  <chart-hbars id="categories" series='{{ category_series | tojson }}' unit=" tickets" label="Tickets by category"></chart-hbars>
+</section>
+<section>
+  <h2>Products</h2>
+  <table>
+    <thead><tr><th>Product</th><th class="num">Tickets</th><th class="num">Escalated</th><th class="num">Hours</th><th class="num">CSAT</th></tr></thead>
+    <tbody>
+    {% for name, t in board.products %}
+      <tr><td>{% if name not in filter.products %}<button type="button" class="add" title="Add {{ name }} to your dataset" aria-label="Add {{ name }} to your dataset"
+              data-on:click="el.classList.add('loading'); @post('/filter/toggle', {payload: {dim: 'products', value: {{ name | tojson | forceescape }}}})">+</button> {% endif %}{{ name }}</td>
+        <td class="num">{{ t.tickets | commas }}</td>
+        <td class="num">{{ "%.1f" | format(t.escalation_pct) if t.escalation_pct is not none else "–" }}%</td>
+        <td class="num">{{ "%.1f" | format(t.mean_hours) if t.mean_hours is not none else "–" }}</td>
+        <td class="num">{{ "%.2f" | format(t.mean_csat) if t.mean_csat is not none else "–" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+</div>
+<p class="muted">Warehouse built {{ manifest.built_at[:16] | replace("T", " ") }} UTC · data through {{ manifest.data_through }}. Hours and CSAT are means over resolved and surveyed tickets; see <a href="/methodology">methodology</a>.</p>
+{% endif %}
+</main>

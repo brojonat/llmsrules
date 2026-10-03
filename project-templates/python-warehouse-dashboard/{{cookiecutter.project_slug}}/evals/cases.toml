@@ -1,0 +1,91 @@
+# The assistant's eval battery: `mise run eval` (all) or `mise run eval -- chart` (ids containing "chart").
+# Field reference: the docstring of src/{{cookiecutter.package_name}}/evals.py. Keep truths computed by SQL, not
+# pasted: the data grows daily. When you replace the synthetic feed, replace these cases too.
+
+# --- Driving the dashboard ------------------------------------------------------
+
+[[case]]
+id = "view-product-state"
+ask = "Show me Ledger tickets in Oregon."
+require_tools = ["set_view"]
+view = { products = ["Ledger"], states = ["OR"] }
+[[case.numbers]]
+label = "ledger-or-total"
+sql = "SELECT sum(tickets) FROM tickets_state_year WHERE product = 'Ledger' AND state = 'OR'"
+
+[[case]]
+id = "view-widen-everything-nationwide"
+setup = { products = ["Ledger"], states = ["OR"] }
+ask = "Now show every product, nationwide."
+require_tools = ["set_view"]
+view = { products = [], states = [] }
+
+[[case]]
+id = "view-loose-names"
+ask = "Filter to enterprise customers' data-loss and how to tickets."
+require_tools = ["set_view"]
+view = { plans = ["Enterprise"], categories = ["Data loss", "How-to"] }
+
+[[case]]
+id = "view-add-and-remove"
+setup = { products = ["Relay"], states = ["CA", "WA", "OR"] }
+turns = ["Add Harbor too.", "Drop California from my selection."]
+require_tools = ["set_view"]
+view = { products = ["Relay", "Harbor"], states = ["WA", "OR"] }
+
+[[case]]
+id = "view-since"
+ask = "Show phone and chat tickets opened since 2023, mapped per resident."
+require_tools = ["set_view"]
+view = { channels = ["phone", "chat"], years_from = 2023, metric = "per_capita" }
+
+# --- Numbers --------------------------------------------------------------------
+
+[[case]]
+id = "number-slowest-product"
+ask = "Which product's tickets take longest to resolve on average, and how long?"
+require_tools = ["query_data"]
+[[case.numbers]]
+label = "slowest-mean-hours"
+tolerance = 0.15
+sql = """SELECT round(sum(resolution_hours) / sum(resolved), 1) AS h FROM tickets_state_year
+         GROUP BY product ORDER BY h DESC LIMIT 1"""
+
+[[case]]
+id = "number-my-data"
+setup = { plans = ["Enterprise"], categories = ["Billing"] }
+ask = "How much have we refunded for the tickets in my selection?"
+[[case.numbers]]
+label = "refunds"
+relative = true
+tolerance = 0.01
+sql = "SELECT sum(refunds_usd) FROM tickets_state_year WHERE {setup_filter}"
+
+[[case]]
+id = "method-open-tickets"
+ask = "Do open tickets count toward the resolution time shown?"
+forbid_tools = ["set_view"]
+rubric = "Says no: resolution time is a mean over resolved tickets only, and open tickets count toward volume. May mention that recent weeks lean fast until slow tickets close."
+
+# --- Finding causes in the text ---------------------------------------------------
+
+[[case]]
+id = "search-spike"
+ask = "What was the biggest one-week spike for a single product and category, and what were customers saying?"
+require_tools = ["query_data"]
+rubric = "Names a product, a category and a week, and describes what the tickets said using the ticket text (a quoted phrase or subject), not speculation."
+
+# --- Charts ---------------------------------------------------------------------
+
+[[case]]
+id = "chart-my-data"
+setup = { products = ["Atlas"] }
+ask = "Chart my selection by year."
+require_tools = ["show_chart"]
+chart = { kind = "bar", total_equals_dataset = true }
+
+[[case]]
+id = "chart-lines-by-plan"
+ask = "Plot mean satisfaction per year for each plan as lines."
+require_tools = ["show_chart"]
+chart = { kind = "line", series = 4 }

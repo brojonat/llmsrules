@@ -76,6 +76,11 @@ TEMPLATES = {
         "output": "test-py-datastar-minimal",
         "vars": {"project_name": "Test Py Datastar Minimal", "author": "testuser"},
     },
+    "warehouse": {
+        "name": "python-warehouse-dashboard",
+        "output": "test-warehouse-dashboard",
+        "vars": {"project_name": "Test Warehouse Dashboard", "author": "testuser"},
+    },
 }
 
 
@@ -614,6 +619,87 @@ def validate_py_minimal(project_dir: Path) -> None:
     success("python-datastar-minimal validation complete")
 
 
+def validate_warehouse(project_dir: Path) -> None:
+    """Validate python-warehouse-dashboard template."""
+    section("Validating python-warehouse-dashboard")
+    cli_name = "test-warehouse-dashboard"
+
+    if shutil.which("mise"):
+        run_with_output(["mise", "trust", "-q", "."], cwd=project_dir)
+        run_with_output(["mise", "tasks"], cwd=project_dir)
+        success("mise tasks lists the front door")
+    else:
+        warn("mise not installed; running the tasks' commands directly")
+
+    run_with_output(["uv", "sync"], cwd=project_dir)
+    success("uv sync works")
+
+    run_with_output(["uv", "run", cli_name, "--help"], cwd=project_dir)
+    success("CLI --help works")
+
+    # A small feed so the build is quick; the default is ~180K tickets.
+    run_with_output(["uv", "run", cli_name, "generate", "--since", "2025-01-01"], cwd=project_dir)
+    run_with_output(["uv", "run", cli_name, "build"], cwd=project_dir)
+    success("generate + build write a warehouse")
+    again = run(["uv", "run", cli_name, "build"], cwd=project_dir, capture=True)
+    if '"skipped": true' in again.stdout:
+        success("an unchanged source skips the build")
+    else:
+        warn("second build did not skip")
+
+    run_with_output(["uv", "run", "ruff", "check", "src", "tests"], cwd=project_dir)
+    run_with_output(["uv", "run", "ruff", "format", "--check", "src", "tests"], cwd=project_dir)
+    success("lint works")
+
+    run_with_output(["uv", "run", "pytest", "-q"], cwd=project_dir)
+    success("tests pass")
+
+    log("Starting server briefly...")
+    server = subprocess.Popen(
+        ["uv", "run", cli_name, "serve", "--port", "18321"],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(6)
+    base = "http://127.0.0.1:18321"
+    jar = project_dir / ".cookies"
+    try:
+        page = subprocess.run(["curl", "-sf", "-c", jar, base + "/"], capture_output=True, timeout=10, text=True)
+        if page.returncode == 0 and 'id="dashboard"' in page.stdout and "<chart-bars" in page.stdout:
+            success("the dashboard renders")
+        else:
+            warn("dashboard did not render")
+        # A command answers 204, and the session's stream carries the result.
+        cmd = subprocess.run(
+            ["curl", "-s", "-b", jar, "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
+             "-H", "Datastar-Request: true", "-H", "Content-Type: application/json",
+             "-d", '{"dim":"products","value":"Harbor"}', base + "/filter/toggle"],
+            capture_output=True, timeout=10, text=True,
+        )
+        stream = subprocess.run(
+            ["curl", "-sN", "-m", "3", "-b", jar, "-H", "Datastar-Request: true", base + "/stream"],
+            capture_output=True, timeout=10, text=True,
+        )
+        if cmd.stdout == "204" and "datastar-patch-elements" in stream.stdout and "Remove Harbor" in stream.stdout:
+            success("POST /filter/toggle lands on the session's SSE stream")
+        else:
+            warn("the stream did not carry the command")
+        for path, needle in [("/healthz", "ok"), ("/metrics", "_open_streams"), ("/admin", 'id="admin"')]:
+            r = subprocess.run(["curl", "-sf", base + path], capture_output=True, timeout=10, text=True)
+            if needle in r.stdout:
+                success(f"{path} works")
+            else:
+                warn(f"{path} failed")
+    finally:
+        server.terminate()
+        server.wait()
+        subprocess.run(["pkill", "-f", f"{cli_name} serve --port 18321"], capture_output=True)
+        jar.unlink(missing_ok=True)
+
+    success("python-warehouse-dashboard validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -623,6 +709,7 @@ VALIDATORS = {
     "realtime": validate_realtime,
     "minimal": validate_minimal,
     "pyminimal": validate_py_minimal,
+    "warehouse": validate_warehouse,
 }
 
 
@@ -640,7 +727,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -656,7 +743,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -744,6 +831,14 @@ def show() -> None:
     click.echo("  make test")
     click.echo("  ./bin/<name> server")
     click.echo("  # NOTE: never `go build` directly -- templ code is generated")
+    click.echo()
+
+    click.echo(f"{BLUE}python-warehouse-dashboard:{NC}")
+    click.echo("  mise tasks         # the front door (not make)")
+    click.echo("  mise run setup     # uv sync")
+    click.echo("  mise run build     # generate the synthetic feed + build the warehouse")
+    click.echo("  mise run dev       # hot reload, tees logs/serve.log")
+    click.echo("  mise run test")
     click.echo()
 
     click.echo(f"{BLUE}python-ducklake-service:{NC}")

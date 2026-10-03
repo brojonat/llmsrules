@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{cookiecutter.project_slug}}
+  labels:
+    app: {{cookiecutter.project_slug}}
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: {{cookiecutter.project_slug}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{cookiecutter.project_slug}}
+  labels:
+    app: {{cookiecutter.project_slug}}
+spec:
+  # One replica, deliberately: sessions, conversations and the SSE hub live in
+  # this process's memory. Recreate, so two pods never hold the litestream
+  # replica at once.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{cookiecutter.project_slug}}
+  template:
+    metadata:
+      labels:
+        app: {{cookiecutter.project_slug}}
+    spec:
+      containers:
+      - name: server
+        image: "{% raw %}{{DOCKER_REPO}}{% endraw %}/{{cookiecutter.project_slug}}:{% raw %}{{IMG_TAG}}{% endraw %}"
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - secretRef:
+            name: {{cookiecutter.project_slug}}-envs
+        env:
+        # DuckDB sizes itself to the node, not the pod: cap memory and match
+        # threads to limits.cpu, or its threads fight each other.
+        - name: DUCKDB_MEMORY
+          value: 256MB
+        - name: DUCKDB_THREADS
+          value: "2"
+        - name: QUERY_CACHE
+          value: "3000"
+        - name: SANDBOX_MEMORY
+          value: 256MB
+        - name: BUILD_MEMORY
+          value: 768MB
+        - name: BUILD_THREADS
+          value: "2"
+        - name: LLM_MAX_CONCURRENT
+          value: "4"
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 1536Mi
+        # run.sh refreshes the warehouse before serving; give it time.
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          periodSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          periodSeconds: 30
+      volumes:
+      # Stateless by default: raw feed and warehouse are rebuilt on start, and
+      # the app database lives in object storage via litestream. To keep data
+      # across restarts (a slow real source, a separate refresh job), swap this
+      # for a PersistentVolumeClaim; see README "Keeping data current".
+      - name: data
+        emptyDir:
+          sizeLimit: 4Gi

@@ -1,0 +1,59 @@
+<main id="admin">
+<div class="row"><h2>Diagnostics</h2><span class="muted">pid {{ limits.pid }} · up {{ uptime }} · sampled every {{ interval }}s</span></div>
+{% if not latest %}<p class="empty">No samples yet.</p>{% else %}
+<section class="tiles" aria-label="resource usage">
+{% for t in tiles %}
+<article class="tile{% if t.over %} over{% endif %}">
+  <div class="label">{{ t.metric.label }}</div>
+  <div class="value">{{ t.value }}<span class="unit">{{ t.metric.unit }}</span></div>
+  <chart-sparkline id="spark-{{ t.metric.name }}" series='{{ t.series | tojson }}' unit="{{ t.metric.unit | trim }}"
+                   step="{{ interval }}" label="{{ t.metric.label }}"></chart-sparkline>
+  <form class="threshold" data-on:submit="@put('/admin/threshold/{{ t.metric.name }}', {contentType: 'form'})">
+    <label><span class="muted">limit</span>
+      <input type="number" step="any" min="0" name="value" data-ignore-morph value="{{ t.threshold }}" placeholder="none"
+             data-on:change="@put('/admin/threshold/{{ t.metric.name }}', {contentType: 'form'})"></label>
+  </form>
+  {% if t.over %}<div class="status critical" role="status">⚠ over {{ t.threshold }}{{ t.metric.unit }}</div>
+  {% elif t.threshold %}<div class="status good" role="status">✓ under {{ t.threshold }}{{ t.metric.unit }}</div>{% endif %}
+</article>
+{% endfor %}
+</section>
+<section class="meters" aria-label="usage against limits">
+{% for m in meters %}
+<div class="meter">
+  <div class="row" style="justify-content: space-between"><span>{{ m.label }}</span><span class="muted">{{ m.text }}</span></div>
+  <div class="track" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ m.pct }}" aria-label="{{ m.label }}"><div class="fill {{ m.level }}" style="width: {{ m.pct }}%"></div></div>
+</div>
+{% endfor %}
+</section>
+{% endif %}
+
+<section aria-label="cost by connected clients">
+<h2>Cost by connected clients</h2>
+<p class="muted">Every sample in the last hour, grouped by how many streams were open (this page holds one). Drive it with <code>mise run loadtest</code>.</p>
+<table>
+<thead><tr><th>Streams</th><th class="num">Samples</th><th class="num">CPU p50</th><th class="num">CPU max</th><th class="num">RSS max</th><th class="num">Loop lag p50</th><th class="num">Loop lag max</th><th class="num">Out p50</th></tr></thead>
+<tbody>
+{% for b in by_clients %}
+<tr><td>{{ b.band }}</td><td class="num">{{ b.samples }}</td><td class="num">{{ b.cpu_pct_p50 | round(1) }}%</td><td class="num">{{ b.cpu_pct_max | round(1) }}%</td>
+<td class="num">{{ b.rss_mb_max | round(0) | int }} MB</td><td class="num">{{ b.loop_lag_ms_p50 | round(1) }} ms</td><td class="num">{{ b.loop_lag_ms_max | round(1) }} ms</td><td class="num">{{ b.wire_kbps_p50 | round(1) }} KB/s</td></tr>
+{% else %}
+<tr><td colspan="8" class="muted">No samples yet.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</section>
+
+<section aria-label="limits">
+<h2>Limits as the process sees them</h2>
+<table><tbody>
+<tr><th>CPUs</th><td>{{ limits.cpus }} on host · {{ limits.cpu_affinity }} usable by this process · one Python process uses at most ~100%</td></tr>
+<tr><th>Open files</th><td>{% if latest %}{{ latest.open_files }} of {% endif %}{{ limits.open_files_max }} (RLIMIT_NOFILE, raised to the hard limit at startup)</td></tr>
+<tr><th>Memory</th><td>{{ limits.mem_available_mb | round(0) | int }} MB available of {{ limits.mem_total_mb | round(0) | int }} MB{% if limits.cgroup_mem_limit_mb %} · cgroup limit {{ limits.cgroup_mem_limit_mb | round(0) | int }} MB{% endif %}</td></tr>
+<tr><th>Warehouse</th><td><code>{{ warehouse }}</code>{% if manifest %} · built {{ manifest.built_at[:19] | replace("T", " ") }} in {{ manifest.seconds }}s · {% for k, v in manifest.rows.items() %}{{ k }} {{ v | commas }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %} · not built{% endif %}</td></tr>
+<tr><th>LLM usage</th><td>today (UTC): {{ usage.today.tokens | n }} of {{ usage.budget | n if usage.budget else "unlimited" }} tokens{% if usage.budget %} ({{ "%.0f" | format(100 * usage.today.tokens / usage.budget) }}%){% endif %}, {{ usage.today.replies }} replies, ${{ "%.2f" | format(usage.today.cost) }} · last 7 days: {{ usage.week.tokens | n }} tokens, ${{ "%.2f" | format(usage.week.cost) }} · <code>mise run usage</code> for the daily table</td></tr>
+<tr><th>Feedback</th><td>check-in ratings: {{ feedback.ratings[3] }} good · {{ feedback.ratings[2] }} fine · {{ feedback.ratings[1] }} bad · reports sent: {% for k, v in feedback.reports.items() %}{{ k | replace("_", " ") }} {{ v }}{% if not loop.last %}, {% endif %}{% else %}none{% endfor %} · read them with <code>mise run feedback</code> (counts only here)</td></tr>
+<tr><th>Machine-readable</th><td><a href="/metrics">/metrics</a> · <a href="/admin/samples">/admin/samples</a></td></tr>
+</tbody></table>
+</section>
+</main>

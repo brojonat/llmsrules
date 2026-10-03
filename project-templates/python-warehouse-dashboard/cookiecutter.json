@@ -1,0 +1,15 @@
+{
+  "project_name": "My Dashboard",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}",
+  "package_name": "{{ cookiecutter.project_slug.replace('-', '_') }}",
+  "description": "A live dashboard over a Parquet warehouse, with an assistant that can query it",
+  "author": "Your Name",
+  "email": "you@example.com",
+  "docker_repo": "{{ cookiecutter.author.lower().replace(' ', '') }}",
+  "domain": "{{ cookiecutter.project_slug }}.example.com",
+  "default_port": "8321",
+  "_copy_without_render": [
+    "*/templates/*.html",
+    "*/static/*"
+  ]
+}

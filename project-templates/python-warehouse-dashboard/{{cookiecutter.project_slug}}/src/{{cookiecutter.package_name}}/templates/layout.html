@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · {{ app_name }}</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<!-- datastar-rocket.js is the full Datastar bundle plus Rocket (web components);
+     it replaces datastar.js. Pinned versions, no build step. -->
+<script type="importmap">
+{"imports": {
+  "datastar": "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar-rocket.js",
+  "d3": "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm",
+  "topojson-client": "https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/+esm"
+}}
+</script>
+<script type="module" src="/static/components.js"></script>
+<style>
+  :root { color-scheme: light dark;
+          --surface: #fcfcfb; --ink: #1d1d1b; --series-1: #2a78d6; --ink-muted: #898781; --baseline: #c3c2b7;
+          --grid: #e7e6df; --neutral: #f0efec; --seq-lo: #cde2fb; --seq-hi: #0d366b;
+          --div-lo: #2a78d6; --div-hi: #e34948;
+          /* categorical, fixed order, validated (dataviz validate_palette.js) */
+          --cat-1: #2a78d6; --cat-2: #eb6834; --cat-3: #1baf7a; --cat-4: #eda100; --status-good: #0ca30c; --status-warning: #fab219; --status-critical: #d03b3b; --track: #cde2fb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface: #181817; --ink: #e9e8e3; --series-1: #3987e5; --baseline: #383835; --grid: #2a2a28; --track: #0d366b;
+            --neutral: #383835; --seq-lo: #0d366b; --seq-hi: #cde2fb; --div-lo: #3987e5; --div-hi: #e66767;
+            --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500; } }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 64rem; margin: 0 auto; padding: 1rem; background: var(--surface); color: var(--ink); }
+  header { display: flex; gap: 1.5rem; align-items: baseline; margin-bottom: 1rem; flex-wrap: wrap; }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  header a { color: inherit; text-decoration: none; }
+  header nav a { margin-right: 1rem; opacity: .75; }
+  header nav a[aria-current] { opacity: 1; font-weight: 600; }
+  h2 { margin: 1.5rem 0 .5rem; font-size: 1.05rem; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); vertical-align: top; }
+  th { font-weight: 600; font-size: .85rem; opacity: .7; }
+  td.num, th.num { text-align: right; }
+  code { font-size: .85rem; background: color-mix(in srgb, currentColor 8%, transparent); padding: .1em .3em; border-radius: 3px; }
+  .muted { opacity: .65; font-size: .9rem; }
+  .row { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
+  .empty { padding: 2rem; text-align: center; opacity: .7; }
+  /* 16px minimum on form controls, or iOS Safari zooms on focus. */
+  input, select, textarea, button { font-size: 16px; font-family: inherit; }
+  select, input { padding: .35rem .5rem; border-radius: 6px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); background: transparent; color: inherit; }
+  .filters { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; margin: .5rem 0 1rem; }
+  .filters label { display: flex; gap: .4rem; align-items: center; }
+  .loading { opacity: .6; transition: opacity .15s; }
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: .75rem; margin: 1rem 0; }
+  .tile { display: flex; flex-direction: column; padding: .75rem .9rem; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+  .tile.over { border-color: var(--status-critical); }
+  .tile .label { font-size: .85rem; opacity: .7; }
+  .tile .value { font-size: 1.6rem; font-weight: 600; line-height: 1.2; margin: .1rem 0 .3rem; font-variant-numeric: tabular-nums; }
+  .tile .unit { font-size: .85rem; font-weight: 400; opacity: .7; margin-left: .15rem; }
+  /* charts are d3 web components (static/components.js); they style their own shadow DOM
+     from these tokens */
+  chart-bars { min-height: 220px; }
+  chart-sparkline { min-height: 40px; }
+  chart-map { min-height: 300px; }
+  .map-head { justify-content: space-between; align-items: center; margin-top: 1.5rem; }
+  .map-head h2 { margin: 0; }
+  .map-controls { display: flex; flex-direction: column; gap: .4rem; align-items: flex-end; }
+  .segmented { display: inline-flex; flex-wrap: wrap; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 8px; overflow: hidden; }
+  .segmented button, .chip { font: inherit; font-size: 16px; padding: .3rem .7rem; background: transparent; color: inherit; border: 0; cursor: pointer; }
+  .segmented button + button { border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+  .segmented button[aria-pressed="true"] { background: color-mix(in srgb, var(--series-1) 25%, transparent); font-weight: 600; }
+  .segmented button:disabled { opacity: .4; cursor: not-allowed; }
+  .chip { border: 1px solid var(--series-1); border-radius: 999px; }
+  /* chat: a panel docked bottom-right; open/closed is UI-only state (a local signal) */
+  .chat-toggle { position: fixed; right: 1rem; bottom: 1rem; z-index: 10; font: inherit; font-size: 16px; padding: .6rem 1rem;
+                 border-radius: 999px; border: 0; background: var(--series-1); color: #fff; cursor: pointer; box-shadow: 0 2px 10px rgb(0 0 0 / .25); }
+  .chat-panel { position: fixed; right: 1rem; bottom: 4.5rem; z-index: 10; width: min(28rem, calc(100vw - 2rem)); height: min(40rem, calc(100vh - 6rem));
+                display: flex; flex-direction: column; background: var(--surface); border-radius: 12px;
+                border: 1px solid color-mix(in srgb, currentColor 20%, transparent); box-shadow: 0 8px 30px rgb(0 0 0 / .3); }
+  #chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .chat-head { padding: .6rem .8rem; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+  .chat-head .row { justify-content: space-between; align-items: center; }
+  .chat-head h2 { margin: 0; font-size: 1rem; }
+  .chat-head button { font: inherit; font-size: .85rem; background: transparent; color: inherit; cursor: pointer;
+                      border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 6px; padding: .15rem .5rem; }
+  .ctx { font-size: .8rem; opacity: .75; margin-top: .35rem; }
+  .ctx .track { height: 4px; margin-top: .2rem; }
+  /* column-reverse keeps the log scrolled to the newest message with no JS */
+  .chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column-reverse; padding: .6rem .8rem; }
+  .msg { margin: .4rem 0; padding: .45rem .7rem; border-radius: 10px; max-width: 92%; overflow-wrap: anywhere; }
+  .msg p { margin: .3rem 0; } .msg ul, .msg ol { margin: .3rem 0; padding-left: 1.2rem; }
+  .msg table { font-size: .85rem; } .msg pre { white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--series-1) 22%, transparent); white-space: pre-wrap; }
+  .msg.assistant { align-self: flex-start; background: color-mix(in srgb, currentColor 7%, transparent); }
+  .msg .note { font-size: .8rem; opacity: .7; }
+  .typing::after { content: "▍"; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .chat-error { color: var(--status-critical); font-size: .85rem; padding: 0 .8rem; }
+  .chat-form { display: flex; gap: .5rem; padding: .6rem .8rem; border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+  .chat-form textarea { flex: 1; resize: none; min-height: 2.6rem; max-height: 8rem; padding: .45rem .6rem; border-radius: 8px;
+                        border: 1px solid color-mix(in srgb, currentColor 30%, transparent); background: transparent; color: inherit; }
+  .chat-form button { font: inherit; font-size: 16px; padding: 0 .9rem; border-radius: 8px; border: 0; background: var(--series-1); color: #fff; cursor: pointer; }
+  .chat-form button:disabled { opacity: .5; cursor: not-allowed; }
+  .chat-empty { opacity: .7; font-size: .9rem; }
+  .card { margin: .5rem 0; padding: .6rem .75rem; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--series-1) 55%, transparent);
+          background: color-mix(in srgb, var(--series-1) 8%, transparent); display: grid; gap: .4rem; }
+  .card-title { font-weight: 600; font-size: .9rem; }
+  .card-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+  .card-actions button { font: inherit; font-size: .9rem; padding: .25rem .65rem; border-radius: 6px; cursor: pointer; color: inherit;
+                         background: transparent; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+  .card-actions button.primary { background: var(--series-1); color: #fff; border-color: transparent; }
+  .card-actions button.link { border: 0; text-decoration: underline; }
+  .card textarea { font-size: 16px; font-family: inherit; padding: .4rem .5rem; border-radius: 6px; resize: vertical; background: transparent;
+                   color: inherit; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+  .card kbd { font-size: .75rem; opacity: .7; }
+  .small { font-size: .8rem; }
+  .draft-details { white-space: pre-wrap; font-size: .9rem; }
+  .action { align-self: flex-start; font-size: .8rem; margin: .1rem 0 .1rem .4rem; padding: .15rem .55rem; border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--series-1) 60%, transparent); opacity: .9; }
+  .action.failed { border-color: var(--status-critical); }
+  details.action { border-radius: 10px; max-width: 92%; }
+  details.action summary { cursor: pointer; }
+  .chat-chart { margin: .4rem 0; padding: .5rem .6rem .3rem; border-radius: 10px; background: color-mix(in srgb, currentColor 5%, transparent); }
+  .chat-chart figcaption { font-size: .85rem; font-weight: 600; margin-bottom: .2rem; }
+  .chat-chart chart-bars, .chat-chart chart-lines { min-height: 170px; }
+  .chat-chart.faceted chart-bars, .chat-chart.faceted chart-lines { min-height: 110px; }
+  .chat-panel.wide { width: min(64rem, calc(100vw - 2rem)); height: min(52rem, calc(100vh - 6rem)); }
+  .facets { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .4rem .6rem; }
+  .panel-title { font-size: .75rem; opacity: .8; margin: .15rem 0 0 .2rem; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: .2rem .8rem; font-size: .75rem; margin: .1rem 0 .3rem; }
+  .chart-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: .35rem; vertical-align: middle; }
+  .chat-head .row > span { display: flex; gap: .35rem; }
+  .chart-data { font-size: .75rem; opacity: .85; } .chart-data summary { cursor: pointer; }
+  .chart-data table { margin-top: .3rem; } .chart-data td, .chart-data th { padding: .15rem .4rem; }
+  details.action pre { margin: .3rem 0 .2rem; font-size: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; opacity: .85; }
+  .doc { max-width: 46rem; } .doc table { margin: .5rem 0 1rem; }
+  /* dataset builder */
+  #builder { margin: .25rem 0 1rem; padding: .75rem .9rem; border-radius: 10px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+  .builder-head { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center; margin-bottom: .6rem; }
+  .builder-head label { display: flex; gap: .4rem; align-items: center; }
+  .dataset-total strong { font-size: 1.15rem; }
+  .export { margin-left: auto; } .export a { color: inherit; }
+  button.link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
+  .dims { display: grid; gap: .45rem; }
+  .dim { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
+  .dim-label { width: 7.5rem; font-size: .85rem; opacity: .75; }
+  .chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .chips .chip { font-size: .85rem; padding: .1rem .55rem; }
+  .picker { position: relative; }
+  .picker summary { cursor: pointer; font-size: .85rem; list-style: none; padding: .1rem .55rem; border-radius: 999px;
+                    border: 1px dashed color-mix(in srgb, currentColor 40%, transparent); }
+  .picker summary::-webkit-details-marker { display: none; }
+  .picker-body { position: absolute; z-index: 5; top: calc(100% + .3rem); left: 0; width: 20rem; max-height: 22rem; overflow: auto;
+                 padding: .5rem; border-radius: 8px; background: var(--surface); box-shadow: 0 6px 24px rgb(0 0 0 / .3);
+                 border: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
+  .picker-body input { width: 100%; box-sizing: border-box; margin-bottom: .4rem; }
+  .picker-body ul { list-style: none; margin: 0; padding: 0; }
+  .picker-body li button { width: 100%; text-align: left; font: inherit; font-size: .9rem; padding: .2rem .35rem; border: 0; border-radius: 5px;
+                           background: transparent; color: inherit; cursor: pointer; display: flex; gap: .4rem; }
+  .picker-body li button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+  .picker-body li button[aria-pressed="true"] { font-weight: 600; }
+  .picker-body .check { width: 1rem; color: var(--series-1); }
+  .picker-body .muted { margin-left: auto; }
+  .hint { font-size: .8rem; margin: .3rem 0 0; }
+  button.add { font: inherit; font-size: .8rem; line-height: 1; padding: .05rem .35rem; border-radius: 4px; cursor: pointer;
+               background: transparent; color: inherit; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.5rem; }
+  /* thresholds and meters */
+  .threshold { display: flex; align-items: center; gap: .35rem; margin-top: .5rem; font-size: .85rem; }
+  .threshold input { width: 5.5rem; padding: .15rem .4rem; }
+  .status { margin-top: .4rem; font-size: .85rem; }
+  .status.critical { color: var(--status-critical); }
+  .status.good { color: color-mix(in srgb, var(--status-good) 85%, currentColor); }
+  .meters { display: grid; gap: .6rem; margin: 1rem 0 1.5rem; }
+  .track { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+  .fill { height: 100%; background: var(--series-1); border-radius: 4px; }
+  .fill.warning { background: var(--status-warning); }
+  .fill.critical { background: var(--status-critical); }
+</style>
+</head>
+<!-- The one long-lived read. It never returns; every later render arrives on it. -->
+<body{% if stream_url %} data-init="@get('{{ stream_url }}', {openWhenHidden: true})"{% endif %}>
+<header>
+  <h1><a href="/">{{ app_name }}</a></h1>
+  <nav>
+    <a href="/" {% if stream_url == '/stream' %}aria-current="page"{% endif %}>dashboard</a>
+    <a href="/methodology" {% if title == 'Methodology' %}aria-current="page"{% endif %}>methodology</a>
+    <a href="/admin" {% if stream_url == '/admin/stream' %}aria-current="page"{% endif %}>diagnostics</a>
+  </nav>
+</header>
+{{ region }}
+{{ aside }}
+</body>
+</html>

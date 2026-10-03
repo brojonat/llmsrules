@@ -1,0 +1,155 @@
+{% macro chart_element(c, panel, key) %}
+{% set small = c.faceted %}
+{% set label = c.title ~ (": " ~ panel.name if panel.name else "") %}
+{% if c.kind == "line" %}
+<chart-lines id="chart-{{ key }}" series='{{ panel.series | tojson }}' unit="{{ c.unit }}" highlight="{{ c.highlight }}"
+             label="{{ label }}" height="{{ 110 if small else 170 }}" y-max="{{ c.y_max }}"
+             {% if c.x_range %}x-min="{{ c.x_range[0] }}" x-max="{{ c.x_range[1] }}"{% endif %}
+             legend="{{ 'false' if c.faceted or c.legend | length > 1 else 'true' }}"></chart-lines>
+{% elif c.kind == "hbar" %}
+<chart-hbars id="chart-{{ key }}" series='{{ panel.series[0].points | tojson }}' unit=" {{ c.unit }}"
+             label="{{ label }}" y-max="{{ c.y_max }}"></chart-hbars>
+{% else %}
+<chart-bars id="chart-{{ key }}" series='{{ panel.series[0].points | tojson }}' unit=" {{ c.unit }}"
+            highlight="{{ c.highlight }}" highlight-note="partial year" label="{{ label }}"
+            height="{{ 110 if small else 170 }}" y-max="{{ c.y_max }}"></chart-bars>
+{% endif %}
+{% endmacro %}
+<section id="chat" aria-label="Ask about the data">
+<div class="chat-head">
+  <div class="row">
+    <h2>Ask about the data</h2>
+    <span>
+    <button type="button" data-on:click="$_chatWide = !$_chatWide" data-text="$_chatWide ? 'Narrow' : 'Widen'"
+            data-attr:aria-pressed="$_chatWide ? 'true' : 'false'">Widen</button>
+    <button type="button" data-on:click="@post('/chat/feedback', {payload: {action: 'open'}})">Feedback</button>
+    <button type="button" data-on:click="@post('/chat/clear')"
+            {% if not conv.messages and conv.pending is none and not conv.error %}disabled{% endif %}>New conversation</button>
+    </span>
+  </div>
+  <div class="ctx" title="Tokens the next message would send, system prompt included. ≈ is an estimate until the model reports exact counts.">
+    Context {% if not usage.exact %}≈{% endif %}{{ usage.tokens | commas }}{% if usage.window %} / {{ usage.window | commas }} tokens · {{ "%.1f" | format(usage.pct) }}%{% else %} tokens{% endif %} · {{ model }}
+    {% if usage.window %}
+    <div class="track" role="meter" aria-label="Context used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ usage.pct | round | int }}">
+      <div class="fill{% if usage.pct >= 90 %} critical{% elif usage.pct >= 75 %} warning{% endif %}" style="width: {{ [usage.pct, 100] | min }}%"></div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+<div class="chat-log" aria-live="polite">
+  <div>
+  {% if not conv.messages and conv.pending is none %}
+    <p class="chat-empty">Ask about the data, or ask it to change your view. For example: <em>Which product's tickets take longest to resolve?</em>, <em>Show me Enterprise billing tickets in Texas</em> or <em>What were the biggest spikes last year, and why?</em></p>
+  {% endif %}
+  {% for m in conv.messages %}
+    {% if m.role == "user" %}
+    <div class="msg user">{{ m.content }}</div>
+    {% elif m.role == "assistant" %}
+      {% if m.content %}
+    <div class="msg assistant">{{ m.content | markdown }}{% if m.interrupted %}<div class="note">(reply interrupted)</div>{% endif %}</div>
+      {% endif %}
+    {% elif m.role == "tool" %}
+    {% if m.attachment and "feedback_draft" in m.attachment %}{% set fd = m.attachment.feedback_draft %}
+    {# Feedback the assistant drafted. Nothing is stored until Send. #}
+    <div class="card feedback-draft" role="group" aria-label="Feedback draft">
+      <div class="card-title">Feedback for the people who run this site · {{ fd.category | replace("_", " ") }}</div>
+      <div><strong>{{ fd.summary }}</strong></div>
+      <div class="draft-details">{{ fd.details }}</div>
+      {% if fd.status == "pending" %}
+      <div class="muted small">Sending includes this conversation and your current dataset.</div>
+      <div class="card-actions">
+        <button type="button" class="primary" data-on:click="@post('/chat/feedback/draft', {payload: {call_id: '{{ m.tool_call_id }}', action: 'send'}})">Send</button>
+        <button type="button" data-on:click="@post('/chat/feedback/draft', {payload: {call_id: '{{ m.tool_call_id }}', action: 'discard'}})">Discard</button>
+      </div>
+      {% elif fd.status == "sent" %}
+      <div class="status good" role="status">✓ Sent. Thank you.</div>
+      {% else %}
+      <div class="muted small" role="status">Discarded.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {# What the assistant did to the dashboard, always visible. #}
+    {% if m.attachment and "chart" in m.attachment %}{% set c = m.attachment.chart %}
+    {# A chart the assistant drew: one panel, or a grid of facets. Ids keep the
+       elements (and d3's drawing) stable while later tokens re-render the region. #}
+    <figure class="chat-chart{% if c.faceted %} faceted{% endif %}" aria-label="{{ c.title }}">
+      <figcaption>{{ c.title }}</figcaption>
+      {% if c.legend | length > 1 or (c.faceted and c.legend) %}
+      <div class="chart-legend" aria-hidden="true">{% for name, slot in c.legend %}<span><i style="background: var(--cat-{{ slot + 1 }})"></i>{{ name }}</span>{% endfor %}</div>
+      {% endif %}
+      <div class="{{ 'facets' if c.faceted else 'single' }}">
+      {% for panel in c.panels %}
+        <div class="panel">
+          {% if c.faceted %}<div class="panel-title">{{ panel.name }}</div>{% endif %}
+          {{ chart_element(c, panel, m.tool_call_id ~ "-" ~ loop.index) }}
+        </div>
+      {% endfor %}
+      </div>
+      <details class="chart-data"><summary>data</summary>
+        <table>
+          <thead><tr>{% for h in c.table.header %}<th{% if loop.revindex <= c.table.header | length - (2 if c.faceted else 1) %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
+          <tbody>
+          {% for row in c.table.rows %}
+            <tr>{% for v in row %}<td{% if loop.revindex <= row | length - (2 if c.faceted else 1) %} class="num"{% endif %}>{{ v if v is not none else "" }}</td>{% endfor %}</tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    </figure>
+    {% endif %}
+    {% set chip = m | tool_chip %}
+    {% if chip.label %}
+    {% if chip.detail %}
+    <details class="action{% if not m.ok %} failed{% endif %}"><summary>{{ chip.label }}</summary><pre>{{ chip.detail }}</pre></details>
+    {% else %}
+    <div class="action{% if not m.ok %} failed{% endif %}" role="status">{{ chip.label }}</div>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+  {% endfor %}
+  {% if conv.pending is not none %}
+    <div class="msg assistant typing" aria-busy="true">{{ conv.pending | markdown }}</div>
+  {% endif %}
+  {# The check-in, Claude Code style: 1 Bad · 2 Fine · 3 Good · Dismiss, then
+     an optional note. The rating is stored as soon as it's clicked. #}
+  {% if conv.checkin == "asking" and conv.pending is none %}
+    {# Keys, like Claude Code's check-in: 1 / 2 / 3 rate, 0 dismisses; only
+       while the chat is open and you're not typing somewhere. #}
+    <div class="card checkin" role="group" aria-label="How is the assistant doing?"
+         data-on:keydown__window="$_chatOpen && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && (['1', '2', '3'].includes(evt.key) ? @post('/chat/feedback', {payload: {action: 'rate', rating: +evt.key}}) : evt.key === '0' && @post('/chat/feedback', {payload: {action: 'dismiss'}}))">
+      <div class="card-title">How is the assistant doing?</div>
+      <div class="card-actions">
+        {% for n, word in [(1, "Bad"), (2, "Fine"), (3, "Good")] %}
+        <button type="button" data-on:click="@post('/chat/feedback', {payload: {action: 'rate', rating: {{ n }}}})"><kbd>{{ n }}</kbd> {{ word }}</button>
+        {% endfor %}
+        <button type="button" class="link" data-on:click="@post('/chat/feedback', {payload: {action: 'dismiss'}})">Dismiss</button>
+      </div>
+      <div class="muted small">A rating saves this conversation and your current dataset to help improve the assistant.</div>
+    </div>
+  {% elif conv.checkin == "rated" %}
+    <form class="card checkin" data-on:submit="@post('/chat/feedback', {payload: {action: 'comment', text: el.elements.note.value}})">
+      <div class="card-title">Thanks! Anything to add? <span class="muted">(optional)</span></div>
+      <textarea name="note" rows="2" maxlength="4000" aria-label="Feedback note" data-ignore-morph
+                placeholder="What worked, what didn't, what you expected"></textarea>
+      <div class="card-actions">
+        <button type="submit" class="primary">Send</button>
+        <button type="button" class="link" data-on:click="@post('/chat/feedback', {payload: {action: 'skip'}})">Skip</button>
+      </div>
+    </form>
+  {% elif conv.checkin == "done" %}
+    <div class="muted small" role="status">Thanks for the feedback.</div>
+  {% endif %}
+  </div>
+</div>
+{% if conv.error %}<p class="chat-error" role="alert">{{ conv.error }}</p>{% endif %}
+{% if not configured %}<p class="chat-error">Chat isn't configured on this server (no LLM API key).</p>{% endif %}
+{# payload is read synchronously when @post is called, so resetting the form
+   right after is safe. The textarea is never morphed, so typing survives the
+   stream's re-renders. #}
+<form class="chat-form" data-on:submit="el.elements.message.value.trim() && @post('/chat/send', {payload: {message: el.elements.message.value}}); el.reset()">
+  <textarea name="message" rows="2" maxlength="{{ max_chars }}" placeholder="Ask a question — Enter to send, Shift+Enter for a new line"
+            aria-label="Your question" data-ignore-morph
+            data-on:keydown="evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), el.form.requestSubmit())"></textarea>
+  <button type="submit" {% if conv.streaming or not configured %}disabled{% endif %}>Send</button>
+</form>
+</section>

@@ -1,0 +1,60 @@
+<section id="builder" aria-label="Build your dataset">
+{# The dataset builder: per session (it includes each picker's search text),
+   so it's its own region on the page stream, apart from the cached dashboard.
+   Every button is a command (a POST answering 204); the change comes back on
+   the stream. Empty dimension = any; several values = any of them. #}
+<div class="builder-head">
+  <span class="dataset-total"><strong>{{ total | commas }}</strong> tickets in your dataset</span>
+  {% if not filter.empty %}
+  <button type="button" class="link" data-on:click="el.classList.add('loading'); @post('/filter/clear', {payload: {}})">Clear all</button>
+  {% endif %}
+  <span class="export muted">Download: <a href="/dataset.csv" download>CSV</a> · <a href="/dataset.parquet" download>Parquet</a></span>
+</div>
+<div class="dims">
+{% for d in dims %}
+  <div class="dim">
+    <span class="dim-label">{{ d.label }}</span>
+    <span class="chips">
+    {% if not d.selected %}
+      <span class="muted">any</span>
+    {% elif d.name == "years" %}
+      <button type="button" class="chip" aria-label="Clear years"
+              data-on:click="el.classList.add('loading'); @post('/filter/clear', {payload: {dim: 'years'}})">{{ d.summary }} <span aria-hidden="true">✕</span></button>
+    {% else %}
+      {% for value, text in d.selected %}
+      <button type="button" class="chip" aria-label="Remove {{ text }}"
+              data-on:click="el.classList.add('loading'); @post('/filter/toggle', {payload: {dim: '{{ d.name }}', value: {{ value | tojson | forceescape }}}})">{{ text }} <span aria-hidden="true">✕</span></button>
+      {% endfor %}
+    {% endif %}
+    </span>
+    {# Which picker is open is server state: options (and their counts) are
+       only computed for the open one. The summary click is a command; the
+       server re-renders with `open` set. Only the open picker listens for a
+       click outside it (or Escape) and asks the server to close it. #}
+    <details class="picker" {% if d.open %}open
+             data-on:click__outside="@post('/builder/open', {payload: {dim: '{{ d.name }}', open: false}})"
+             data-on:keydown__window="evt.key === 'Escape' && @post('/builder/open', {payload: {dim: '{{ d.name }}', open: false}})"{% endif %}>
+      <summary data-on:click__prevent="@post('/builder/open', {payload: {dim: '{{ d.name }}'}})">+ add</summary>
+      {% if d.open %}
+      <div class="picker-body">
+        {% if d.searchable %}
+        <input type="search" placeholder="Search {{ d.label | lower }}" aria-label="Search {{ d.label | lower }}" autocomplete="off"
+               data-ignore-morph data-on:input__debounce.250ms="@post('/builder/search', {payload: {dim: '{{ d.name }}', q: el.value}})">
+        {% endif %}
+        <ul>
+        {% for value, text, n, on in d.options %}
+          <li><button type="button" aria-pressed="{{ 'true' if on else 'false' }}"
+                      data-on:click="el.classList.add('loading'); @post('/filter/toggle', {payload: {dim: '{{ d.name }}', value: {{ value | tojson | forceescape }}}})">
+            <span class="check" aria-hidden="true">{{ "✓" if on else "" }}</span>{{ text }} <span class="muted">{{ n | n }}</span></button></li>
+        {% else %}
+          <li class="muted">No matches{% if d.query %} for “{{ d.query }}”{% endif %}.</li>
+        {% endfor %}
+        </ul>
+        <p class="muted hint">Counts reflect your other selections.{% if d.name == "years" %} Or drag across the chart below.{% elif d.name == "states" %} Or click states on the map.{% endif %}</p>
+      </div>
+      {% endif %}
+    </details>
+  </div>
+{% endfor %}
+</div>
+</section>

@@ -1,0 +1,12 @@
+{# The docked panel. Open/closed is pure UI state, so it's a local signal
+   ($_chatOpen never reaches the server); everything inside #chat is
+   server-rendered and patched on the page's stream. #}
+<div data-signals:_chat-open="false" data-signals:_chat-wide="false">
+  <button type="button" class="chat-toggle" aria-controls="chat-panel"
+          data-attr:aria-expanded="$_chatOpen ? 'true' : 'false'"
+          data-on:click="$_chatOpen = !$_chatOpen"
+          data-text="$_chatOpen ? 'Close' : 'Ask about the data'">Ask about the data</button>
+  <aside id="chat-panel" class="chat-panel" style="display: none" data-show="$_chatOpen" data-class:wide="$_chatWide">
+    {{ region }}
+  </aside>
+</div>

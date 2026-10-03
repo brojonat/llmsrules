@@ -1,0 +1,18 @@
+# Only what the image needs: pyproject + lock, src/, deploy/.
+.git
+.venv
+.scratch
+.agents
+.pi
+.claude
+data
+logs
+tests
+evals
+k8s
+*.env*
+.env*
+.admin-htpasswd
+__pycache__
+.ruff_cache
+.pytest_cache

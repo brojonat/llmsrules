@@ -1,0 +1,148 @@
+# mise is the front door: `mise tasks` lists everything, `mise run <task>`.
+# Extra arguments are appended to a task's command; tasks that tee wrap the
+# command in a function so appended args land on the command, not on tee.
+
+[tools]
+uv = "latest"
+
+[env]
+# Secrets (OPENROUTER_API_KEY, ...) go in .env (gitignored), loaded if present.
+_.file = { path = ".env", redact = false }
+DATA_DIR = "data"
+PORT = "{{cookiecutter.default_port}}"
+
+[tasks.setup]
+description = "Install dependencies into .venv"
+run = "uv sync"
+
+[tasks.generate]
+description = "Write the synthetic ticket feed to data/raw (rewrites only files whose content changed)"
+run = 'f() { uv run {{cookiecutter.project_slug}} generate "$@"; }; f'
+
+[tasks.build]
+description = "Generate, then rebuild the warehouse if source or recipe changed (a running server hot-swaps it)"
+depends = ["generate"]
+run = 'f() { uv run {{cookiecutter.project_slug}} build "$@"; }; f'
+
+[tasks.query]
+description = "Run SQL against the warehouse: mise run query 'select ...'"
+run = 'f() { uv run {{cookiecutter.project_slug}} query "$@"; }; f'
+
+[tasks.dev]
+description = "Serve with hot reload on :$PORT, tee to logs/serve.log"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} serve --reload "$@" 2>&1 | tee logs/serve.log; }; f'
+
+[tasks.serve]
+description = "Serve without reload (what load tests should hit), tee to logs/serve.log"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} serve "$@" 2>&1 | tee logs/serve.log; }; f'
+
+[tasks.feedback]
+description = "Feedback users left (ratings + reports), newest first, as JSON lines"
+run = 'f() { uv run {{cookiecutter.project_slug}} feedback "$@"; }; f'
+
+[tasks.usage]
+description = "LLM tokens, replies and cost per UTC day and model, as JSON lines"
+run = 'f() { uv run {{cookiecutter.project_slug}} usage "$@"; }; f'
+
+[tasks.loadtest]
+description = "Ramp 5/10/100/1000 SSE clients against :$PORT; JSONL to logs/loadtest.jsonl"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} loadtest "$@" | tee -a logs/loadtest.jsonl; }; f'
+
+[tasks."loadtest:smoke"]
+description = "Quick load test: 5 and 10 clients, 5s each, with filter churn"
+run = 'mkdir -p logs; uv run {{cookiecutter.project_slug}} loadtest --levels 5,10 --hold 5 --settle 1 --churn 2 | tee -a logs/loadtest.jsonl'
+
+[tasks.fakellm]
+description = "Free local OpenAI-compatible LLM on :8399 for chat load tests"
+run = 'f() { uv run {{cookiecutter.project_slug}} fakellm "$@"; }; f'
+
+[tasks."serve:fakellm"]
+description = "Serve (no reload) against the fake LLM, tee to logs/serve.log"
+env = { LLM_BASE_URL = "http://127.0.0.1:8399/v1", LLM_MODEL = "fake", LLM_API_KEY = "fake" }
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} serve "$@" 2>&1 | tee logs/serve.log; }; f'
+
+[tasks."loadtest:chat"]
+description = "Load test with chat: clients ask every ~20s (run fakellm + serve:fakellm first!)"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} loadtest --chat 20 "$@" | tee -a logs/loadtest.jsonl; }; f'
+
+[tasks.profile]
+description = "Serve under py-spy; run a load test, then Ctrl-C to write logs/profile.svg"
+run = 'mkdir -p logs; uv sync -q && uvx py-spy record --idle --subprocesses -o logs/profile.svg -- .venv/bin/{{cookiecutter.project_slug}} serve 2>&1 | tee logs/serve.log'
+
+[tasks.eval]
+description = "Run the assistant eval battery with the real model (costs money); JSONL to logs/eval.jsonl"
+run = 'mkdir -p logs; f() { uv run {{cookiecutter.project_slug}} eval "$@" | tee -a logs/eval.jsonl; }; f'
+
+[tasks.test]
+description = "Run tests"
+run = 'f() { uv run pytest -q "$@"; }; f'
+
+[tasks.lint]
+description = "ruff check + format check"
+run = ["uv run ruff check src tests", "uv run ruff format --check src tests"]
+
+[tasks.fmt]
+description = "ruff fix + format"
+run = ["uv run ruff check --fix src tests", "uv run ruff format src tests"]
+
+[tasks.stop]
+description = "Kill whatever is listening on :$PORT (an orphaned reload child, usually)"
+run = "lsof -ti tcp:$PORT | xargs kill 2>/dev/null || true"
+
+# --- Deployment ---------------------------------------------------------------
+#
+# Images go to $DOCKER_REPO/{{cookiecutter.project_slug}}:<git hash>. Commit first: the tag is the
+# commit, so an uncommitted change would ship under an old tag.
+
+[tasks.docker-build]
+description = "Build the image as $DOCKER_REPO/{{cookiecutter.project_slug}}:<git hash>"
+run = 'docker build -t "${DOCKER_REPO:-{{cookiecutter.docker_repo}}}/{{cookiecutter.project_slug}}:$(git rev-parse --short HEAD)" .'
+
+[tasks.docker-push]
+description = "Build and push the image"
+depends = ["docker-build"]
+run = 'docker push "${DOCKER_REPO:-{{cookiecutter.docker_repo}}}/{{cookiecutter.project_slug}}:$(git rev-parse --short HEAD)"'
+
+[tasks.admin-htpasswd]
+description = "Write .admin-htpasswd (Traefik basic auth for /admin, /metrics) from .env.admin"
+sources = [".env.admin"]
+outputs = [".admin-htpasswd"]
+run = '''
+set -e
+test -f .env.admin || { echo ".env.admin is missing (ADMIN_USER, ADMIN_PASSWORD)" >&2; exit 1; }
+. ./.env.admin
+printf '%s:%s\n' "$ADMIN_USER" "$(openssl passwd -apr1 "$ADMIN_PASSWORD")" > .admin-htpasswd
+chmod 600 .admin-htpasswd
+'''
+
+[tasks.k8s-preview]
+description = "Render the manifests without applying them"
+run = "deploy/render.sh"
+
+[tasks.deploy]
+description = "Push the image for HEAD and apply the manifests (needs .env.prod, .env.admin)"
+depends = ["docker-push", "admin-htpasswd"]
+run = '''
+set -e
+test -f .env.prod || { echo ".env.prod is missing; see .env.prod.example" >&2; exit 1; }
+test -z "$(git status --porcelain -- src deploy Dockerfile pyproject.toml uv.lock k8s)" \
+  || { echo "uncommitted changes in shipped files; commit first (the image tag is the commit)" >&2; exit 1; }
+deploy/render.sh | kubectl apply -f -
+kubectl rollout status deployment/{{cookiecutter.project_slug}} --timeout=300s
+'''
+
+[tasks.k8s-status]
+description = "Deployment, pods, service and ingress"
+run = "kubectl get deployment,pod,svc,ingress -l app={{cookiecutter.project_slug}}"
+
+[tasks.k8s-logs]
+description = "Tail the server's logs"
+run = "kubectl logs -f deployment/{{cookiecutter.project_slug}} -c server"
+
+[tasks.k8s-restart]
+description = "Restart the server (picks up a changed secret)"
+run = "kubectl rollout restart deployment/{{cookiecutter.project_slug}} && kubectl rollout status deployment/{{cookiecutter.project_slug}} --timeout=300s"
+
+[tasks.k8s-delete]
+description = "Remove everything this project deployed"
+run = "deploy/render.sh | kubectl delete --ignore-not-found -f -"
