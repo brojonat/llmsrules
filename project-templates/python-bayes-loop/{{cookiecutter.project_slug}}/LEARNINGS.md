@@ -326,6 +326,13 @@ during a trial. It's the `gpu` extra now: `mise run setup` is CPU-only,
 inexact sync and leaves the extra installed; only `uv sync` without
 `--extra gpu` removes it.
 
+**A template inside a repo inherits that repo's `.gitignore`.** llmsrules
+ignores `.agents/` (its own installed skills), which also matched the
+template's `.agents/skills/new-model`: the round trip, the validator and a
+local render all passed, but the skill was never committed, so a fresh clone
+would have generated projects with no skill. Anchor such rules to the root
+(`/.agents/`), and check a template from a fresh clone, not the working tree.
+
 **A copied project needs `mise trust`.** mise refuses an untrusted
 `mise.toml` in a new directory (a scratch copy, a fresh clone), and the error
 can surface from an unrelated command like `uv sync` via mise's shims.
