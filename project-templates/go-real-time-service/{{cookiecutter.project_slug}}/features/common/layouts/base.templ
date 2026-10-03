@@ -14,7 +14,8 @@ templ Base(title string) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
-			<link rel="icon" href="data:,"/>
+			<link rel="icon" type="image/png" href={ resources.StaticPath("favicon.png") }/>
+			<link rel="apple-touch-icon" href={ resources.StaticPath("apple-touch-icon.png") }/>
 			<link href={ resources.StaticPath("index.css") } rel="stylesheet" type="text/css"/>
 			<script defer type="module" src={ resources.StaticPath("datastar/datastar.js") }></script>
 		</head>

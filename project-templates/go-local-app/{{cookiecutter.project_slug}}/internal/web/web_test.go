@@ -150,6 +150,14 @@ func TestAdminDashboard(t *testing.T) {
 	if rec := do(t, h, "GET", "/healthz", ""); rec.Body.String() != "ok\n" {
 		t.Errorf("healthz: %q", rec.Body.String())
 	}
+	for _, p := range []string{"/favicon.png", "/apple-touch-icon.png"} {
+		if rec := do(t, h, "GET", p, ""); rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "image/png") {
+			t.Errorf("%s: %d %s", p, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+	if body := do(t, h, "GET", "/", "").Body.String(); !strings.Contains(body, `<link rel="icon" type="image/png" href="/favicon.png">`) {
+		t.Errorf("layout should link the favicon")
+	}
 }
 
 // firstPatch opens a stream and returns everything received in the first

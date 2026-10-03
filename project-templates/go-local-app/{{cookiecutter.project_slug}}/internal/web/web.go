@@ -26,6 +26,9 @@ import (
 //go:embed templates/*.html
 var files embed.FS
 
+//go:embed assets/*
+var assets embed.FS
+
 // Deps is everything the handlers need. Nothing is global.
 type Deps struct {
 	App   string // shown in the header and title
@@ -65,6 +68,8 @@ func NewHandler(d Deps) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.Handle("GET /favicon.png", s.asset("favicon.png"))
+	mux.Handle("GET /apple-touch-icon.png", s.asset("apple-touch-icon.png"))
 	mux.HandleFunc("GET /{$}", s.page("items", s.itemsView))
 	mux.HandleFunc("GET /items/stream", s.stream("items", s.itemsView, s.stateWatch))
 	mux.HandleFunc("GET /i/{id}", s.page("item", s.itemView))
@@ -212,6 +217,20 @@ func drain(w watcher) {
 			return
 		}
 	}
+}
+
+// asset serves one embedded file with a long cache life; the binary is the
+// version, so a new build is a new URL only if you rename the file.
+func (s *Server) asset(name string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := assets.ReadFile("assets/" + name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
+	})
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
