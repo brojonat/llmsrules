@@ -50,14 +50,18 @@ like to structure my projects.
 | `go-real-time-service`       | Go real-time web app    | Datastar over SSE, templ, embedded NATS JetStream, Tailwind/DaisyUI   |
 | `go-local-app`               | Local app in a browser  | One `go install` binary: urfave/cli, embedded NATS JetStream KV, Datastar over SSE, `html/template`, diagnostics dashboard, `/metrics` |
 | `python-datastar-minimal`    | Real-time app, one file | Datastar over SSE, PEP 723 deps, no build step, `./main.py`          |
+| `python-warehouse-dashboard` | Data dashboard + assistant | Synthetic feed -> DuckDB/Parquet read models, per-session Datastar dashboard, d3 Rocket charts, LLM assistant with SQL sandbox + evals, `/admin`, mise |
 | `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
 | `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
 | `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2 + HTMX, Postgres, MinIO  |
 | `python-bayesian-experiment` | Bayesian experiments    | PyMC + ArviZ, MLflow tracking, FastAPI, Click CLI, tmux dev session   |
 
-All templates include: Makefile, Dockerfile, K8s manifests, `.gitignore`,
-`AGENTS.md`, `CHANGELOG.md` — except the two `*-datastar-minimal` templates,
-which are deliberately a single source file plus a README.
+All templates include: a task runner, Dockerfile, K8s manifests,
+`.gitignore`, `AGENTS.md`, `CHANGELOG.md` — except the two
+`*-datastar-minimal` templates, which are deliberately a single source file
+plus a README. The task runner is `mise.toml` in `python-warehouse-dashboard`
+and a Makefile in the older templates; mise is the default going forward (see
+`AGENTS.md`).
 
 ```bash
 # Install cookiecutter
@@ -69,6 +73,7 @@ cookiecutter project-templates/go-datastar-minimal
 cookiecutter project-templates/go-real-time-service
 cookiecutter project-templates/go-local-app
 cookiecutter project-templates/python-datastar-minimal
+cookiecutter project-templates/python-warehouse-dashboard
 cookiecutter project-templates/python-service
 cookiecutter project-templates/python-cli
 cookiecutter project-templates/python-ducklake-service

@@ -53,28 +53,41 @@ Air for Go, `uvicorn --reload` for Python, equivalent tooling for whatever
 stack. Edit file, see result. If hot reload isn't working, fix it before
 writing more code.
 
-## Makefiles as the Front Door
+## mise as the Front Door
 
-Every project needs a `Makefile` with the primary targets (`build`, `test`,
-`lint`, `run-*`, `deploy-*`) so that humans and agents share a single entry
-point. No one should have to dig through READMEs to figure out the right
-command — `make help` lists everything.
+Every project needs a [`mise.toml`](https://mise.jdx.dev/) with the primary
+tasks (`setup`, `build`, `test`, `lint`, `dev`, `deploy`, ...) so that humans
+and agents share a single entry point. No one should have to dig through
+READMEs to figure out the right command: `mise tasks` lists everything, with
+descriptions. mise also pins the tools a project needs (`[tools]`) and loads
+`.env` (`[env]`), which a Makefile can only approximate.
 
-**Dev targets must tee stdout and stderr to files in `logs/`.** A coding agent
-can't iterate on a bug it can't see. When `make run-server` dumps output into
-a separate terminal, the agent is blind; when it tees to `logs/server.log`,
-the agent can `tail` / `grep` / `jq` the output, diagnose what's broken, fix
-the code, and watch the reload pick it up.
+Older projects have a `Makefile`. That's fine; convert it to `mise.toml`
+when you're working there anyway. Targets map one-to-one onto tasks, and
+prerequisites become `depends`.
 
-```makefile
-.PHONY: run-server
-run-server: ## Run server with hot reload, tee to logs/
-	@mkdir -p logs
-	$(call setup_env, .env.server)
-	uv run uvicorn server.main:app --reload 2>&1 | tee logs/server.log
-	# Go equivalent:
-	# air 2>&1 | tee logs/server.log
+**Dev tasks must tee stdout and stderr to files in `logs/`.** A coding agent
+can't iterate on a bug it can't see. When `mise run dev` dumps output into a
+separate terminal, the agent is blind; when it tees to `logs/serve.log`, the
+agent can `tail` / `grep` / `jq` the output, diagnose what's broken, fix the
+code, and watch the reload pick it up.
+
+```toml
+[env]
+_.file = { path = ".env", redact = false }   # loaded if present
+
+[tasks.dev]
+description = "Serve with hot reload, tee to logs/serve.log"
+# mise appends extra args to the end of `run`, so wrap the command in a
+# function: otherwise `mise run dev --port 9000` hands --port to tee.
+run = 'mkdir -p logs; f() { uv run uvicorn server.main:app --reload "$@" 2>&1 | tee logs/serve.log; }; f'
+# Go equivalent: air 2>&1 | tee logs/serve.log
 ```
+
+Two mise gotchas: task scripts are rendered as Tera templates, so anything
+containing `{{ ... }}` belongs in a script file the task calls; and `[env]`
+overrides inline variables (`PORT=9000 mise run dev` still gets the
+`mise.toml` value), so pass flags instead.
 
 Keep `logs/` gitignored. The value is the feedback loop, not the artifacts.
 

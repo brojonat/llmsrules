@@ -19,11 +19,20 @@ The TODO section has a checklist of all required files.
 
 ## Goals
 
-- Provide consistent project structure across different project types
-- Standardize common configurations (Makefiles, Kubernetes, environment
-  management)
-- Reduce boilerplate and setup time for new projects
-- Enforce best practices and conventions
+This is a library of **good-enough architectures** for the problems we keep
+running into: "a minimal Python service", "a real-time app in one file", "a
+dashboard over a dataset with an assistant". Each one is a working, deployable
+starting point that an agent (or a forward-deployed engineer) can generate
+and adapt to a customer's problem the same day.
+
+- Pick the template whose *architecture* fits the problem, not the closest
+  name; reshape the domain after generating.
+- Templates don't need to be identical to each other. Each should be a good
+  example of its own shape, carrying the conventions in `AGENTS.md` (front
+  door, logs, `/healthz`, `/metrics`, JSON on stdout) where they apply.
+- When a real project proves out a new shape, extract it into a template:
+  keep the architecture and the hard-won `LEARNINGS.md`, swap the domain for
+  something synthetic that works on first run.
 
 ## Design Principles
 
@@ -136,6 +145,48 @@ SSE stream (so browser automation must wait on an element instead).
 
 Reach for `python-service` instead when you want FastAPI, structlog, metrics,
 and a Kubernetes deployment.
+
+### python-warehouse-dashboard
+
+A live dashboard over a Parquet warehouse, with an LLM assistant that queries
+the data and drives the dashboard. Extracted from a production NHTSA
+complaints dashboard, with the domain swapped for a seeded synthetic
+support-ticket feed so it works on first run.
+
+```bash
+cookiecutter path/to/project-templates/python-warehouse-dashboard
+cd my-dashboard
+mise run setup && mise run build   # uv sync; generate the feed, build the warehouse
+mise run dev                       # http://127.0.0.1:8321, hot reload, tees logs/
+```
+
+CQRS twice. *Data:* the CLI is the write side. `generate` writes raw
+files (deterministic, append-by-day, rewritten only when content changes) and
+`build` turns them into Parquet read models with DuckDB, skips when the
+source and recipe hashes match, refuses to publish a shrunken dataset, and
+writes `manifest.json` last; the server hot-swaps on a new manifest. *UI:*
+Datastar fat morphs over one Brotli-compressed SSE stream per page, with
+per-session state (a `sid` cookie keys a dataset filter) and a keyed hub so a
+command wakes only its session.
+
+- Dataset builder with faceted pickers; every panel is "counts by dimension
+  D, ignoring D's selection", memoized on `(sql, params)`
+- d3 charts as Datastar Rocket web components in an open shadow root,
+  fed by element attributes (no build step)
+- Assistant over any OpenAI-compatible endpoint (no SDK): tools that drive
+  the same filter as the page, a locked-down DuckDB SQL sandbox, SQLite FTS5
+  text search, charts plotted from SQL, feedback drafts, a daily token budget
+- Eval runner (truths computed by SQL, judge-graded rubric and
+  groundedness), a fake LLM, and a load tester that reads the server's own
+  samples
+- `/admin` diagnostics (a port of `go-local-app`'s), `/metrics` without a
+  client library, an app DB (SQLite + migrations) replicated by litestream
+- A stateless k8s deployment: the pod refreshes into an `emptyDir` at start;
+  *when* to refresh is left to you (`deploy/refresh.sh` for a sidecar,
+  CronJob or systemd timer)
+
+**Its front door is mise** (`mise tasks`), per AGENTS.md; dev tasks tee to
+`logs/`.
 
 ### go-real-time-service
 
@@ -444,6 +495,26 @@ project-templates/
 │       ├── .gitignore
 │       ├── README.md
 │       └── main.py                 # PEP 723 deps, state, templates, 4 routes
+├── python-warehouse-dashboard/
+│   ├── cookiecutter.json           # _copy_without_render: Jinja page templates, static/
+│   └── {{cookiecutter.project_slug}}/
+│       ├── AGENTS.md, README.md, TODO.md, CHANGELOG.md, LEARNINGS.md
+│       ├── mise.toml               # the front door (not a Makefile)
+│       ├── pyproject.toml, Dockerfile, .env.example, .env.prod.example
+│       ├── src/{{cookiecutter.package_name}}/
+│       │   ├── generate.py         # synthetic feed (replace with a real fetch)
+│       │   ├── ingest.py           # raw -> Parquet read models + FTS + manifest
+│       │   ├── warehouse.py        # read side: Filter, memoized queries
+│       │   ├── web.py, stream.py   # Starlette + Datastar, compressed SSE, Hub
+│       │   ├── chat.py, llm.py, tools.py, sql.py, search.py, prompt.py
+│       │   ├── evals.py, fakellm.py, loadtest.py, metrics.py, appdb.py
+│       │   ├── docs/               # assistant.md, methodology.md (the system prompt)
+│       │   ├── static/             # components.js: d3 Rocket components
+│       │   └── templates/          # Jinja2 regions
+│       ├── tests/                  # build a small warehouse with the real generator
+│       ├── evals/cases.toml
+│       ├── deploy/                 # run.sh, refresh.sh, render.sh, litestream.yml
+│       └── k8s/prod/
 ├── go-real-time-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1360,6 +1431,7 @@ The validation script tests:
 | `python-bayesian-experiment` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, `experiments --help`, server `/healthz` |
 | `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/`go.sum`/README/`.gitignore`, builds with no tidy step, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
 | `python-datastar-minimal` | file set is exactly `main.py`/README/`.gitignore`, PEP 723 block present, `./main.py` serves the page, `POST /add` lands on the SSE read stream |
+| `python-warehouse-dashboard` | `mise tasks` (when installed), `uv sync`, CLI `--help`, `generate` + `build`, a second build skips, ruff, `pytest`, server renders the dashboard, `POST /filter/toggle` lands on the session's SSE stream, `/healthz`, `/metrics`, `/admin` |
 | `go-real-time-service` | `make help`, `make setup`, `go build` works on generated output, `make verify-generated`, `make build`, CLI `--help`, `make test`, server `/healthz`, SSE stream emits an element patch |
 
 ### Manual Testing
@@ -1446,6 +1518,14 @@ uv run test-cli foo do-something
   - [x] Dev/prod build tags for static assets, live reload in dev
   - [x] K8s manifests (replicas: 1, no PVC, SSE-safe ingress annotations)
   - [x] AGENTS.md, CHANGELOG.md, README.md
+- [x] Create python-warehouse-dashboard template
+  - [x] Synthetic, deterministic, append-by-day source (`generate`)
+  - [x] DuckDB build: read models, FTS5 index, recipe hash, shrink guard, manifest last
+  - [x] Per-session Datastar dashboard, dataset builder, d3 Rocket components
+  - [x] LLM assistant: view tools, SQL sandbox, text search, charts, feedback, budget
+  - [x] Evals, fake LLM, load tester, /admin, /metrics, app DB with migrations
+  - [x] Stateless k8s deploy, litestream, refresh schedule left to the user
+  - [x] Verified: tests, lint, validator, browser round trip, Docker image
 - [x] Add test-templates.py validation script
 
 ### Remaining
