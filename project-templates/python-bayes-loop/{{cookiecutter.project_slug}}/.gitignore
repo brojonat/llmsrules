@@ -7,10 +7,9 @@ dist/
 .ruff_cache/
 .pytest_cache/
 
-# Secrets: .env (dev), .env.prod (deploy)
+# Secrets
 .env*
 !.env.example
-!.env.prod.example
 
 # Local belt database, XLA compile cache, dev logs
 data/

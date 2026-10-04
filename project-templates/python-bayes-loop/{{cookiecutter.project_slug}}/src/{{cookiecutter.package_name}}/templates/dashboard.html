@@ -9,11 +9,11 @@
   <p class="empty">No fits yet, but {{ waiting|num }} batches are waiting (oldest {{ oldest_s|num(0) }} s).
     Is <code>sample</code> running? Check <code>logs/sample.log</code>.</p>
   {% else %}
-  <p class="empty">No fits yet. Start the belt: <code>mise run up</code> (or <code>db</code>, <code>feed</code>, <code>sample</code> separately).</p>
+  <p class="empty">No fits yet. Start the loop (<code>mise run loop:cpu</code>), then feed it data: <code>mise run feed</code>.</p>
   {% endif %}
 {% else %}
 {% set f = latest %}
-<p class="muted">{{ f.sampler }} on {{ f.device }} · {{ f.chains }} chains × {{ f.draws }} draws · n = {{ f.n|num }} per batch ·
+<p class="muted">{{ f.sampler }} on {{ f.device }} · {{ f.chains }} chains × {{ f.draws }} draws · fit on {{ f.n|num }} rows of {{ run.file }} ·
   last fit {{ age_s|num(1) }} s ago</p>
 <section class="tiles">
   <div class="tile"><span class="label">Fits</span>
@@ -32,9 +32,9 @@
     <span class="value">{{ (coverage * 100)|num(0) }}<span class="unit">%</span></span>
     <chart-spark series='{{ spark.coverage|tojson }}' label="share of true values inside the 90% interval, per fit" ref="0.9"></chart-spark></div>
   {% endif %}
-  <div class="tile {{ 'warn' if queued > 5 }}"><span class="label">Lag · queued</span>
-    <span class="value">{{ f.lag_s|num(1) }}<span class="unit">s</span> · {{ queued }}</span>
-    <chart-spark series='{{ spark.lag_s|tojson }}' unit=" s" label="seconds from batch landing to fit written"></chart-spark></div>
+  <div class="tile"><span class="label">Rows fed</span>
+    <span class="value">{{ run.fed|num }}<span class="unit">of {{ run.rows|num }}</span></span>
+    <span class="muted">{{ (100 * run.fed / run.rows)|num(0) }}% of {{ run.file }} · {{ run.batches }} batch{{ 'es' if run.batches != 1 }}{% if queued %} · {{ queued }} queued{% endif %}</span></div>
   <div class="tile"><span class="label">Divergences</span>
     <span class="value">{{ f.divergences }}</span><span class="muted">{{ f.grad_evals|num }} gradient evals</span></div>
 </section>
@@ -52,7 +52,7 @@
     <chart-forest rows='{{ forest|tojson }}' label="posterior intervals for {{ view.forest|join(', ') }}, latest fit"></chart-forest>
   </section>
   <section>
-    <h2>{{ 'Tracking the drifting truth' if has_truth else 'Across fits' }} <span class="muted">· last {{ spark.fit_s|length }} fits</span></h2>
+    <h2>As data is fed <span class="muted">· {{ spark.fit_s|length }} fit{{ 's' if spark.fit_s|length != 1 }}, by rows fed</span></h2>
     <div class="facets">
     {% for name, points in panels.items() %}
       <chart-track label="{{ name }}" points='{{ points|tojson }}' y-min="{{ track_y[0] }}" y-max="{{ track_y[1] }}"></chart-track>
@@ -71,10 +71,10 @@
 
 <h2>Recent fits</h2>
 <div class="scroll"><table>
-  <thead><tr><th>batch</th><th>fit s</th><th>lag s</th><th>min ESS</th><th>max R̂</th><th>div</th><th>grad evals</th><th>compile s</th></tr></thead>
+  <thead><tr><th>rows</th><th>fit s</th><th>lag s</th><th>min ESS</th><th>max R̂</th><th>div</th><th>grad evals</th><th>compile s</th></tr></thead>
   <tbody>
   {% for r in recent %}
-    <tr><td>{{ r.batch_id % 1000000 }}</td><td>{{ r.fit_s|num }}</td><td>{{ r.lag_s|num(1) }}</td><td>{{ r.min_ess|num }}</td>
+    <tr><td>{{ r.n|num }}</td><td>{{ r.fit_s|num }}</td><td>{{ r.lag_s|num(1) }}</td><td>{{ r.min_ess|num }}</td>
         <td>{{ r.max_rhat|num(3) }}</td><td>{{ r.divergences }}</td><td>{{ r.grad_evals|num }}</td><td>{{ r.compile_s|num }}</td></tr>
   {% endfor %}
   </tbody>

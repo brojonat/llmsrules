@@ -1,3 +1,4 @@
+{% macro show(f) %}{% if f.is_png %}<img src="/figures/{{ f.id }}.png" alt="{{ f.title }}" loading="lazy">{% else %}<figure-chart src="/figures/{{ f.id }}.json" label="{{ f.title }}"></figure-chart>{% endif %}{% endmacro %}
 <section id="figures">
 {% if figs %}
 {% set keys = figs|map(attribute="key")|list %}
@@ -5,7 +6,7 @@
 <div class="pins" data-show="$pins.length > 0">
   {% for f in figs %}
   <figure class="pin" data-show="$pins.includes('{{ f.key }}')">
-    <img src="/figures/{{ f.id }}.png" alt="{{ f.title }}" loading="lazy">
+    {{ show(f) }}
     <figcaption><span>{{ f.title }}{% if f.version %} · v{{ f.version }}{% endif %}</span>
       <button type="button" data-on:click="$pins = $pins.filter(k => k !== '{{ f.key }}')">Unpin</button></figcaption>
   </figure>
@@ -14,21 +15,24 @@
 <div class="carousel" data-on:keydown__window='["INPUT", "TEXTAREA"].includes(evt.target.tagName) || !["ArrowLeft", "ArrowRight"].includes(evt.key) || ($fig = figStep({{ keys|tojson }}, $fig, evt.key === "ArrowRight" ? 1 : -1))'>
   {% for f in figs %}
   <figure class="slide" data-show='figAt({{ keys|tojson }}, $fig) === "{{ f.key }}"'>
-    <img src="/figures/{{ f.id }}.png" alt="{{ f.title }}" loading="lazy">
+    {{ show(f) }}
     <figcaption>
       <button type="button" aria-label="Previous figure" data-on:click='$fig = figStep({{ keys|tojson }}, $fig, -1)'>‹</button>
       <span class="title">{{ f.title }}<span class="muted"> · {% if f.version %}v{{ f.version }} · {% endif %}{{ "by the agent" if f.author == "agent" else f.created_at|clock }} · {{ loop.index }}/{{ figs|length }}</span></span>
+      {% if f.how %}<details class="how"><summary title="{{ f.how }}">How to read this</summary><p>{{ f.how }}</p></details>{% endif %}
       <button type="button" aria-label="Next figure" data-on:click='$fig = figStep({{ keys|tojson }}, $fig, 1)'>›</button>
       <button type="button" data-show="!$pins.includes('{{ f.key }}')" data-on:click="$pins = [...$pins, '{{ f.key }}'].slice(-3)">Pin</button>
-      <a href="/figures/{{ f.id }}.png" download="{{ cli }}-{{ f.key }}.png">Save PNG</a>
+      {% if f.is_png %}<a href="/figures/{{ f.id }}.png" download="{{ cli }}-{{ f.key }}.png">Save PNG</a>
+      {% else %}<button type="button" data-on:click="saveFigure(el.closest('figure').querySelector('figure-chart'), '{{ cli }}-{{ f.key }}.png')">Save PNG</button>{% endif %}
     </figcaption>
   </figure>
   {% endfor %}
 </div>
 <div class="thumbs" role="list">
   {% for f in figs %}
-  <img role="listitem" src="/figures/{{ f.id }}.png" alt="{{ f.title }}" title="{{ f.title }}{% if f.version %} · v{{ f.version }}{% endif %}" loading="lazy"
-       data-class:active='figAt({{ keys|tojson }}, $fig) === "{{ f.key }}"' data-on:click="$fig = '{{ f.key }}'">
+  <button type="button" role="listitem" title="{{ f.title }}{% if f.version %} · v{{ f.version }}{% endif %}"
+          data-class:active='figAt({{ keys|tojson }}, $fig) === "{{ f.key }}"' data-on:click="$fig = '{{ f.key }}'">
+    {{ f.title.split(':')[0] }}{% if f.version %} · v{{ f.version }}{% endif %}</button>
   {% endfor %}
 </div>
 {% endif %}

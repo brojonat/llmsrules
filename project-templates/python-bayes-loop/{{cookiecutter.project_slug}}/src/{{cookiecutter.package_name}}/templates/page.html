@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ app_name }}</title>
+<link rel="icon" href="data:,">
 <!-- datastar-rocket.js = Datastar + Rocket web components. Pinned, no build step. -->
 <script type="importmap">
 {"imports": {
@@ -16,10 +17,10 @@
 <style>
   /* Palette from python-warehouse-dashboard (validated with dataviz validate_palette.js). */
   :root { color-scheme: light dark;
-          --surface: #fcfcfb; --ink: #1d1d1b; --ink-muted: #898781; --series-1: #2a78d6;
+          --surface: #fcfcfb; --ink: #1d1d1b; --ink-muted: #898781; --series-1: #2a78d6; --series-2: #eb6834;
           --baseline: #c3c2b7; --grid: #e7e6df; --status-warning: #fab219; --status-critical: #d03b3b; --status-ok: #2f9e44; }
   @media (prefers-color-scheme: dark) {
-    :root { --surface: #181817; --ink: #e9e8e3; --series-1: #3987e5; --baseline: #383835; --grid: #2a2a28; } }
+    :root { --surface: #181817; --ink: #e9e8e3; --series-1: #3987e5; --series-2: #d95926; --baseline: #383835; --grid: #2a2a28; } }
   body { font: 16px/1.5 system-ui, sans-serif; max-width: 72rem; margin: 0 auto; padding: 1rem; background: var(--surface); color: var(--ink); }
   header { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
   header h1 { font-size: 1.25rem; margin: 0; }
@@ -46,29 +47,23 @@
   code { font-size: .85rem; background: color-mix(in srgb, currentColor 8%, transparent); padding: .1em .3em; border-radius: 3px; }
   model-graph { min-height: 160px; } chart-grid { min-height: 200px; }
   chart-forest { min-height: 200px; }
-  /* model: diagram beside Claude's description, stacked on narrow screens */
+  /* model: diagram beside the agent's description, stacked on narrow screens */
   .model-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1.5rem; align-items: center; margin: 1rem 0 .5rem; }
   @media (max-width: 760px) { .model-grid { grid-template-columns: 1fr; } }
   .model-grid figure { margin: 0; }
   .model-grid figcaption { text-align: center; font-size: .8rem; }
   .note h2 { margin-top: 0; }
   .note p { margin: 0 0 .75rem; line-height: 1.6; }
-  .note .byline { font-size: .8rem; }
-  .caret { display: inline-block; width: .5em; height: 1.1em; margin-left: .1em; vertical-align: text-bottom;
-           background: var(--series-1); animation: blink 1s steps(2, start) infinite; }
-  @keyframes blink { to { visibility: hidden; } }
-  @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
-  /* agent thread: the agent's notes and your feedback, newest last */
+  /* agent thread: the agent's notes, newest last */
   .thread { list-style: none; padding: 0; margin: .5rem 0; max-height: 28rem; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: .5rem; }
   .msg { padding: .5rem .75rem; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); max-width: 52rem; }
-  .msg.user { align-self: flex-end; border-color: var(--series-1); }
-  .msg.report, .msg.commit, .msg.approve { border-width: 2px; }
+  .msg.report, .msg.commit { border-width: 2px; }
   .msg .meta { font-size: .8rem; color: var(--ink-muted); }
-  /* agent activity: pulsing while it works, steady amber while it waits for you, grey when quiet */
+  /* agent activity: pulsing while it works, grey when quiet; its status in ink */
   .activity { font-size: .9rem; font-weight: 400; margin-left: .5rem; color: var(--ink-muted); }
   .activity .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .4rem; vertical-align: middle; background: var(--baseline); }
   .activity.working .dot { background: var(--status-ok); }
-  .activity.waiting { color: var(--ink); } .activity.waiting .dot { background: var(--status-warning); }
+  .activity .status { color: var(--ink); }
   .dot.pulse { animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-ok) 60%, transparent); }
                      50% { box-shadow: 0 0 0 .45rem transparent; opacity: .7; } }
@@ -86,16 +81,21 @@
   .pins img { max-height: 32vh; }
   .pins figcaption { display: flex; justify-content: space-between; gap: .5rem; font-size: .85rem; margin-top: .3rem; }
   .thumbs { display: flex; gap: .4rem; overflow-x: auto; padding: .5rem 0; }
-  .thumbs img { height: 3.5rem; border-radius: 4px; cursor: pointer; opacity: .55; background: #fff; border: 2px solid transparent; }
-  .thumbs img.active { opacity: 1; border-color: var(--series-1); }
-  #feedback-form { display: flex; flex-direction: column; gap: .5rem; margin: .5rem 0 1rem; }
-  /* 16px: iOS Safari zooms into smaller inputs */
-  #feedback-form textarea { font: 16px/1.4 system-ui, sans-serif; padding: .5rem; border-radius: 6px; color: inherit; background: transparent;
-                            border: 1px solid color-mix(in srgb, currentColor 25%, transparent); resize: vertical; }
-  #feedback-form .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
-  #feedback-form button { font-size: 16px; padding: .4rem .9rem; border-radius: 6px; cursor: pointer; color: inherit; background: transparent;
-                          border: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
-  #feedback-form button[type=submit] { background: var(--series-1); border-color: var(--series-1); color: #fff; } chart-track { min-height: 120px; } chart-spark { min-height: 36px; }
+  .thumbs button { flex: none; font-size: 16px; padding: .25rem .6rem; border-radius: 6px; cursor: pointer; color: var(--ink-muted);
+                   background: transparent; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); white-space: nowrap; }
+  .thumbs button.active { color: var(--ink); border-color: var(--series-1); box-shadow: inset 0 -2px 0 var(--series-1); }
+  figure-chart { display: block; min-height: 240px; }
+  /* "How to read this": a chip that opens in place (tap or click), with the text as its hover tooltip too */
+  .how summary { display: inline-block; list-style: none; cursor: pointer; font-size: .85rem; padding: .15rem .6rem; border-radius: 999px; color: var(--ink-muted);
+                 border: 1px solid color-mix(in srgb, currentColor 30%, transparent); white-space: nowrap; }
+  .how summary::-webkit-details-marker { display: none; }
+  .how summary::before { content: "i"; display: inline-grid; place-items: center; width: 1.05em; height: 1.05em; margin-right: .35em;
+                         border: 1px solid currentColor; border-radius: 50%; font: italic 600 .75em/1 Georgia, serif; vertical-align: .1em; }
+  .how[open] summary { color: var(--ink); border-color: var(--series-1); }
+  .how p { flex-basis: 100%; margin: .4rem 0 0; max-width: 46rem; font-size: .9rem; line-height: 1.5; }
+  .carousel figcaption:has(.how[open]) { flex-wrap: wrap; }
+  .carousel figcaption .how[open] { order: 9; flex-basis: 100%; }
+  chart-track { min-height: 120px; } chart-spark { min-height: 36px; }
 </style>
 </head>
 <body data-signals="{fig: '', pins: []}"
@@ -104,18 +104,6 @@
 <header><h1>{{ app_name }}</h1><span class="muted">posterior on a belt: feed → DuckDB/Quack → sampler → here</span></header>
 {{ model|safe }}
 {{ agent|safe }}
-{% if can_write %}
-<form id="feedback-form" data-signals="{feedback: ''}" data-on:submit="@post('/messages'); $feedback = ''">
-  <textarea data-bind:feedback rows="3" aria-label="Feedback for the agent"
-            placeholder="Feedback for the agent: what to change, what to look at next. It reads this with {{ cli }} inbox."></textarea>
-  <div class="actions">
-    <button type="submit">Send</button>
-    <button type="button" data-on:click="@post('/approve')">Approve the current model</button>
-  </div>
-</form>
-{% else %}
-<p class="muted">Feedback and approval are only open from the machine the agent runs on here (<code>FEEDBACK_FROM=local</code>).</p>
-{% endif %}
 {{ dashboard|safe }}
 {{ figures|safe }}
 </body>

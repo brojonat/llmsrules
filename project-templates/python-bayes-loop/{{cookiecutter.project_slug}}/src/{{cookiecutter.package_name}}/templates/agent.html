@@ -1,19 +1,20 @@
 <section id="agent">
 {% set a = activity %}
 <h2>Agent
-  {% if a.mode == "working" %}<span class="activity working"><span class="dot pulse" aria-hidden="true"></span>working · {{ a.what }} {{ a.ago_s|ago }}</span>
-  {% elif a.mode == "waiting" %}<span class="activity waiting"><span class="dot" aria-hidden="true"></span>waiting for your feedback since {{ a.since|clock }}{% if a.stale %} · no check-in for a while: it may have stopped{% endif %}</span>
-  {% elif a.mode == "quiet" %}<span class="activity quiet"><span class="dot" aria-hidden="true"></span>quiet for {{ a.ago_s|ago(False) }} · last: {{ a.what }}</span>
+  {% if a.mode != "none" %}<span class="activity {{ a.mode }}"><span class="dot{{ ' pulse' if a.mode == 'working' }}" aria-hidden="true"></span>
+    {%- if a.status %}<span class="status">{{ a.status }}</span> · {{ a.status_ago_s|ago }}{% if a.what != a.status %} · last: {{ a.what }} {{ a.ago_s|ago }}{% endif %}
+    {%- elif a.mode == "working" %}working · {{ a.what }} {{ a.ago_s|ago }}
+    {%- else %}quiet for {{ a.ago_s|ago(False) }} · last: {{ a.what }}{% endif %}</span>
   {% endif %}
 </h2>
 {% if not thread %}
-<p class="muted">Nothing yet. The agent posts here with <code>{{ cli }} note</code> (what it's changing and why, what happened),
-  and reads what you send with <code>{{ cli }} inbox</code>.</p>
+<p class="muted">Nothing yet. The agent posts here with <code>{{ cli }} note</code> (what it's changing and why, what happened)
+  and says what it's doing with <code>{{ cli }} status</code>. Talk to it in its own window.</p>
 {% else %}
 <ol class="thread">
 {% for m in thread|reverse %}{# newest first; the list is column-reverse, so it reads oldest-to-newest and opens at the newest #}
-  <li class="msg {{ m.author }} {{ m.kind }}">
-    <div class="meta">{{ "You" if m.author == "user" else "Agent" }} · {{ m.kind }}{% if m.version %} · v{{ m.version }}{% endif %} · {{ m.created_at|clock }}{% if m.author == "user" %} · {{ "read" if m.read else "not read yet" }}{% endif %}</div>
+  <li class="msg {{ m.kind }}">
+    <div class="meta">{{ m.kind }}{% if m.version %} · v{{ m.version }}{% endif %} · {{ m.created_at|clock }}</div>
     <div class="text">{{ m.text }}</div>
   </li>
 {% endfor %}

@@ -5,10 +5,8 @@
 [env]
 JAX_PLATFORMS = "cpu"
 BELT_DB = "data/belt-cpu.duckdb"
-BELT_N = "2000"
+SIM_ROWS = "2000"  # rows `mise run simulate` writes
 BELT_DIMS = "group=5 feature=4"  # simulator sizes, NAME=SIZE per model.SIM_DIMS
-FEED_EVERY = "2"
 SAMPLE_CHAINS = "64"
 SAMPLE_WARMUP = "300"
 SAMPLE_DRAWS = "200"  # split-R̂ on 50 draws reads 1.07-1.09 on the example; 200 reads ~1.02 (10 s vs 6.6 s per fit)
-SAMPLE_LATEST = "1"

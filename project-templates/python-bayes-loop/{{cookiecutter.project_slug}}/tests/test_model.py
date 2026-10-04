@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 
 from {{cookiecutter.package_name}} import feed
 from {{cookiecutter.package_name}} import model as example
-from {{cookiecutter.package_name}}.compile import jaxify
+from {{cookiecutter.package_name}}.compile import capacity, jaxify, pad
 from {{cookiecutter.package_name}}.samplers import make_nuts
 from {{cookiecutter.package_name}}.summary import summarize
 
@@ -83,6 +83,26 @@ def test_gradient_is_finite():
     grad = jax.grad(lambda p: jm.logdensity(p, jm.data))(point)
     bad = [name for name, g in grad.items() if not np.isfinite(np.asarray(g)).all()]
     assert not bad, f"non-finite gradient for {bad}: look for inf/nan in an untaken branch (where, switch)"
+
+
+def test_padding_rows_carry_no_weight():
+    """A fit sees every row fed so far, padded to a power-of-two capacity with copies of the first row, weight 0.
+
+    Fails when the likelihood doesn't run along the rows: an observed variable
+    without dims, or rows aggregated in from_arrow or build (counts per group,
+    say), where the copies would still count. Keep one likelihood term per obs
+    row, with the rows' dim first (dims=("obs_id", ...)).
+    """
+    truth, rows = small(seed=4, n=300)
+    padded, weights = pad(rows, capacity(rows.num_rows))
+    exact = jaxify(example.build(example.from_arrow(rows, truth.coords), truth.coords))
+    jm = jaxify(example.build(example.from_arrow(padded, truth.coords), truth.coords))
+    assert jm.row_dim is not None, "no observed variable has dims: give the likelihood dims=('obs_id', ...)"
+    rng = np.random.default_rng(5)
+    point = {k: v + rng.normal(size=v.shape).astype(v.dtype) for k, v in jm.initial_position.items()}
+    want = exact.logdensity(point, exact.data)
+    got = jm.logdensity(point, jm.cast(example.from_arrow(padded, truth.coords), weights))
+    np.testing.assert_allclose(got, want, rtol=1e-5, err_msg="padding rows changed the logp")
 
 
 def test_view_names_real_variables():

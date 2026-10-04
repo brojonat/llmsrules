@@ -5,8 +5,6 @@
   "description": "Agent-built PyMC models that refit as data arrives, with a live dashboard to watch and steer them",
   "author": "Your Name",
   "email": "you@example.com",
-  "docker_repo": "{{ cookiecutter.author.lower().replace(' ', '') }}",
-  "domain": "{{ cookiecutter.project_slug }}.example.com",
   "default_port": "8765",
   "_copy_without_render": [
     "*/templates/*.html",

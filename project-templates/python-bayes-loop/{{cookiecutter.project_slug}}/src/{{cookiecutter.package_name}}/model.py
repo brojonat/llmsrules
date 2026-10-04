@@ -4,9 +4,9 @@ Big N, modest parameter count - the shape of problem where the per-gradient
 cost is dominated by a (N x K) matvec and a GPU earns its keep.
 
 Every axis is named (`dims`) and labeled (`coords`), so a posterior scalar is
-`beta[Denver, income]`, not `beta[3, 1]`. The labels travel with each batch
-(`batches.coords`), so the feeder decides them and the sampler builds the
-model from them.
+`beta[Denver, income]`, not `beta[3, 1]`. The labels come from the whole data
+file (`coords_for`, stored with the feed's run in `runs.coords`), so every fit
+of the file shares them and the sampler builds the model from them.
 
 This module is the whole model-specific surface. To fit a different model,
 replace it; feed, sample, bench and the dashboard only use these names:
@@ -18,15 +18,16 @@ replace it; feed, sample, bench and the dashboard only use these names:
   coords_for     labels for every dim, from obs rows (`feed --from` calls it once per file)
   from_arrow     obs rows -> the arrays `build` takes as pm.Data
   build          the PyMC model
-  SIM_DIMS, draw_truth, drift, simulate
-                 a simulator with known parameters: the default feed, the
-                 benchmark, and the tests' parameter-recovery check
+  SIM_DIMS, draw_truth, simulate
+                 a simulator with known parameters: `{{cookiecutter.project_slug}} simulate`
+                 (the default dataset), the benchmark, and the tests'
+                 parameter-recovery check
 
 `tests/test_model.py` checks any model against this contract.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -78,11 +79,10 @@ def coords_for(rows: pa.Table) -> dict[str, list[str]]:
 
 # What the numbers mean, for whoever (or whatever) explains the model to a reader.
 CONTEXT = """\
-Simulated data, refit on every new batch from a stream. Each row is one customer
+Simulated data from the model's own generative story. Each row is one customer
 in one city; y is 1 if the customer converted. X holds the customer's
-standardized features. The true coefficients drift slowly over time, but the
-model itself has no notion of time: each fit sees only its own batch, and the
-dashboard compares successive fits to show the drift."""
+standardized features. Each fit sees every row fed so far, so the intervals
+narrow as data is fed, toward the true coefficients the simulator drew."""
 
 DIMS = {"mu": ("feature",), "sigma": ("feature",), "z": ("group", "feature"), "beta": ("group", "feature")}
 
@@ -119,11 +119,6 @@ def draw_truth(rng: np.random.Generator, sizes: Mapping[str, int] = SIM_DIMS) ->
         sigma=np.full(features, 0.3),
         z=rng.normal(size=(groups, features)),
     )
-
-
-def drift(rng: np.random.Generator, truth: Truth, scale: float) -> Truth:
-    """Random-walk the population means; the posterior should follow."""
-    return replace(truth, mu=truth.mu + rng.normal(0, scale, size=truth.mu.shape))
 
 
 def simulate(rng: np.random.Generator, truth: Truth, n: int) -> pa.Table:

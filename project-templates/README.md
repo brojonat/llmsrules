@@ -191,11 +191,12 @@ command wakes only its session.
 ### python-bayes-loop
 
 Bring a dataset and a question; a coding agent builds a Bayesian model for
-it, and you watch and steer from a live dashboard. Made for forward-deployed
-work: generate a project per business unit, hand an agent their data and
-problem, and iterate with them on the dashboard. A PyMC model is compiled
-once into one XLA program and refit on every batch that lands on a DuckDB
-"belt", so the model keeps up as data arrives.
+it while you watch a live dashboard and steer in the agent's chat. Made for
+forward-deployed work: generate a project per business unit, hand an agent
+their data and problem, and iterate with them. A PyMC model is compiled once
+into one XLA program and refit as data is fed through a DuckDB "belt": all
+at once, or in chunks of any size, each fit on every row fed so far. A local
+tool: nothing to deploy.
 
 ```bash
 cookiecutter path/to/project-templates/python-bayes-loop project_name="Term Deposits"
@@ -212,12 +213,15 @@ The generated README's "Start here" covers the rest. The agent follows the
 - profile the data and write `prepare.sql`;
 - write the model in `model.py`, against a contract `mise run check-model` enforces;
 - check the fit on the real data with `bench --from`;
-- run the loop in tmux (`mise run loop:cpu`).
+- run the loop in tmux (`mise run loop:cpu`) and feed the data the way you
+  asked (`mise run feed`, `--rows 50%`, `--chunk 100`, ...).
 
-It journals to the dashboard as it goes and writes the model's description.
-You send feedback or approve a version from the browser; the agent commits
-an approved version and tags it `model-vN`. It also runs on its own: `mise
-run up:cpu` serves a simulated example (customer conversion by city).
+It journals to the dashboard as it goes (notes, a status line, the model's
+description, its own plots). The dashboard is read-only: you steer in the
+agent's chat ("now feed the rest", "commit v3"), and it commits a version
+you approve and tags it `model-vN`. It also runs on its own: `mise run
+simulate`, `mise run loop:cpu`, `mise run feed --chunk 200` shows a simulated
+example (customer conversion by city) converging on its known truth.
 
 Validated on six business-unit-style cases (radon, bike demand, bank
 marketing, wine quality, telco churn, online retail): a fresh agent goes
@@ -225,29 +229,29 @@ from handoff to a converged, reported model in 15 to 50 minutes on CPU. The
 case briefs, the agent prompt, and the scored results live in the workbench
 repo the template is synced from (`sync-template.py`, below).
 
-Four processes around one DuckDB file. `db` owns it and serves it over
-Quack (DuckDB's client-server protocol); `feed` inserts batches, `sample`
-fits them on the GPU and writes per-parameter summaries, `serve` watches.
+Four services and a command around one DuckDB file. `db` owns it and serves
+it over Quack (DuckDB's client-server protocol); `feed` sends the next rows
+of a data file and waits for their fit; `sample` fits every row fed so far
+on the GPU and writes per-parameter summaries; `plots` computes figures;
+`serve` watches.
 Reads run server-side through `query()`, writers generate their own IDs and
 write a marker row last (Quack has no client sequences and ROLLBACK doesn't
 undo), and delivery is at-least-once.
 
 - `pm.Data` swapped for symbolic inputs before jaxifying, so new data never
-  recompiles; BlackJAX ChEES (many lockstep chains) or NUTS with warmup,
-  sampling and summaries in one AOT-compiled `jax.jit`; float32; persistent
-  XLA cache
+  recompiles; rows padded to a power of two with zero-weight copies, so a
+  growing fit compiles once per doubling; BlackJAX ChEES (many lockstep
+  chains) or NUTS with warmup, sampling and summaries in one AOT-compiled
+  `jax.jit`; float32; persistent XLA cache
 - Labeled `dims`/`coords` end to end: `beta[Denver, income]` in the tables,
   the joins and the charts
-- Datastar dashboard (regions sent only when they change, throttled), d3
-  Rocket charts: forest plot vs truth, drift tracking, group x feature grid,
-  sparkline tiles
+- Read-only Datastar dashboard (regions sent only when they change,
+  throttled), d3 Rocket charts: forest plot vs truth, parameters against rows
+  fed, group x feature grid, sparkline tiles, a figures carousel
 - The model graph from `pm.model_to_graphviz`, laid out in the browser with
-  Graphviz WASM, and a plain-English description streamed from any
-  OpenAI-compatible LLM (the `nhtsa` client), cached per model
+  Graphviz WASM, beside the agent's plain-English description
 - `/healthz`, `/metrics` without a client library; `serve --replace` for the
   orphaned-reloader trap; benchmarks against `pm.sample`
-- One pod on k8s: four containers sharing localhost (Quack is localhost-only),
-  a PVC for the belt and the XLA cache, `nvidia.com/gpu` on the sampler
 
 `LEARNINGS.md` carries the hard-won parts: Quack's sharp edges, PyMC's
 dtype narrowing, static shapes for JAX, vectorized NUTS on CPU, signal
@@ -260,7 +264,7 @@ escaped), and fails unless the template renders back to the project exactly:
 
 ```bash
 ./sync-template.py python-bayes-loop ~/projects/bayes-loop "project_name=Bayes Loop" "author=..." email=... \
-  --exclude TODO.md --exclude CHANGELOG.md --exclude cases --keep python-bayes-loop --write
+  --exclude TODO.md --exclude CHANGELOG.md --exclude cases --exclude PORT-TO-TEMPLATE.md --keep python-bayes-loop --write
 ```
 
 ### go-real-time-service
@@ -595,7 +599,7 @@ project-templates/
 │   └── {{cookiecutter.project_slug}}/
 │       ├── AGENTS.md, README.md, TODO.md, CHANGELOG.md, LEARNINGS.md
 │       ├── mise.toml, mise.cpu.toml # front door; CPU profile (MISE_ENV=cpu)
-│       ├── pyproject.toml, Dockerfile, .env.example, .env.prod.example
+│       ├── pyproject.toml, .env.example
 │       ├── .agents/skills/new-model/  # the agent's workflow (symlinked into .claude/skills by the hook)
 │       ├── install-skills.sh, skills-lock.json  # PyMC Labs' Decision Hub skills, pinned
 │       ├── scripts/loop.sh         # the belt in tmux: up / restart / status / down
@@ -605,16 +609,14 @@ project-templates/
 │       │   ├── samplers.py         # ChEES / NUTS in one jitted program
 │       │   ├── summary.py, labels.py # on-device quantiles; beta[Denver, income] names
 │       │   ├── belt.py             # DuckDB over Quack: schema, serve, read(), write()
-│       │   ├── feed.py, worker.py  # write side: batches in, fits out
-│       │   ├── web.py              # Starlette + Datastar regions, agent thread, /healthz, /metrics
-│       │   ├── journal.py          # the agent <-> dashboard thread: note, inbox, approve
-│       │   ├── describe.py, llm.py # model description via an OpenAI-compatible LLM
+│       │   ├── feed.py, worker.py  # write side: a cursor through the data file in, fits out
+│       │   ├── plots.py            # the figures: predictive checks, traces, prior vs posterior, rank
+│       │   ├── web.py              # Starlette + Datastar regions, read-only; /healthz, /metrics
+│       │   ├── journal.py          # the agent's journal on the dashboard: notes, status, description
 │       │   ├── bench.py, cli.py
 │       │   ├── static/             # components.js: d3 Rocket charts, model-graph (WASM)
 │       │   └── templates/          # Jinja2 regions
-│       ├── tests/                  # the model contract; logp on swapped data; feed -> db -> sample over Quack
-│       ├── deploy/render.sh
-│       └── k8s/prod/               # one pod, four containers, PVC, GPU on the sampler
+│       └── tests/                  # the model contract; logp on swapped data; feed -> db -> sample over Quack
 ├── go-real-time-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1532,7 +1534,7 @@ The validation script tests:
 | `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/`go.sum`/README/`.gitignore`, builds with no tidy step, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
 | `python-datastar-minimal` | file set is exactly `main.py`/README/`.gitignore`, PEP 723 block present, `./main.py` serves the page, `POST /add` lands on the SSE read stream |
 | `python-warehouse-dashboard` | `mise tasks` (when installed), `uv sync`, CLI `--help`, `generate` + `build`, a second build skips, ruff, `pytest`, server renders the dashboard, `POST /filter/toggle` lands on the session's SSE stream, `/healthz`, `/metrics`, `/admin` |
-| `python-bayes-loop` | `mise tasks` (when installed), `uv sync`, CLI `--help`, ruff, `pytest` on CPU (the model contract, logp on swapped data, feed -> db -> sample over Quack, the agent thread, descriptions), the belt run briefly on CPU until a fit renders with the model graph, an agent note landing in the thread, `/healthz`, `/metrics` |
+| `python-bayes-loop` | `mise tasks` (when installed), `uv sync`, CLI `--help`, ruff, `pytest` on CPU (the model contract, logp on swapped data, feed -> db -> sample over Quack, the feed cursor, the agent's journal), `simulate`, the belt run briefly on CPU fed half a file then the rest in chunks, a fit rendering with the model graph, figures in the carousel, an agent note and status on the dashboard, `/healthz`, `/metrics` |
 | `go-real-time-service` | `make help`, `make setup`, `go build` works on generated output, `make verify-generated`, `make build`, CLI `--help`, `make test`, server `/healthz`, SSE stream emits an element patch |
 
 ### Manual Testing

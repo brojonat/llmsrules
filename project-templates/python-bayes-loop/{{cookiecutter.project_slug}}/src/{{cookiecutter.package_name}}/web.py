@@ -1,4 +1,7 @@
-"""The dashboard: a read-only Quack client that streams one region over SSE.
+"""The dashboard: a read-only Quack client that streams the page's regions over SSE.
+
+Read-only all the way: no route writes to the belt. The agent drives (model.py,
+`{{cookiecutter.project_slug}} note/status/describe/figure`); the dashboard shows what it did.
 
 One background task polls the belt (two ~2 ms server-side queries every
 POLL_S). When a fit or batch lands it renders the dashboard once and bumps a
@@ -14,14 +17,11 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
-import httpx
-import pyarrow as pa
 from datastar_py import ServerSentEventGenerator as SSE
-from datastar_py.starlette import DatastarResponse, read_signals
+from datastar_py.starlette import DatastarResponse
 from jinja2 import Environment, PackageLoader
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -30,8 +30,6 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from {{cookiecutter.package_name}} import belt, journal, plots
-from {{cookiecutter.package_name}}.describe import NoCredentials, describe
-from {{cookiecutter.package_name}}.llm import LLMConfig, LLMError
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +39,6 @@ POLL_S = 0.1
 MIN_INTERVAL_S = 0.25
 REFRESH_S = 2.0  # re-render even when idle: "last fit 12 s ago" should age
 HISTORY = 120  # fits shown in the time-series panels
-LOCAL = {"127.0.0.1", "::1"}
 
 
 class Board:
@@ -52,8 +49,8 @@ class Board:
     the agent, journal.py) when a message lands; `figures` (the carousel,
     plots.py) when a figure is rendered or posted. Streams send a region only
     when it differs from what that stream last sent, so the diagram goes out
-    once. `con` is the poll loop's belt connection; write handlers take a
-    cursor from it (None while the belt is unreachable).
+    once. `con` is the poll loop's belt connection; handlers take a cursor
+    from it (None while the belt is unreachable).
     """
 
     def __init__(self, env: Environment) -> None:
@@ -87,13 +84,18 @@ class Board:
 def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
     """Everything the dashboard shows, read on the server via query().
 
-    Only the current model's fits: those whose model has the same spec
-    (str_repr) as the newest fit's. Edit the model and restart the sampler,
-    and the panels start over with the new model; a new batch size alone
-    (same spec, new program) keeps the history.
+    Only the current model's fits in the current run: those whose model has the
+    same spec (str_repr) as the newest fit's, of batches fed in the newest
+    fit's run. Edit the model and restart the sampler, and the panels start
+    over with the new model; a new capacity alone (same spec, new program)
+    keeps the history. `feed --restart` starts them over too.
     """
-    current = "select id from models where spec = (select m.spec from fits f join models m on m.id = f.model_id order by f.id desc limit 1)"
-    recent = f"select * from fits where model_id in ({current}) order by id desc limit {HISTORY}"
+    newest = "select f.model_id, b.run_id from fits f join batches b on b.id = f.batch_id order by f.id desc limit 1"
+    current = f"select id from models where spec = (select m.spec from models m where m.id = (select model_id from ({newest})))"
+    in_run = f"select id from batches where run_id = (select run_id from ({newest}))"
+    recent = (
+        f"select * from fits where model_id in ({current}) and batch_id in ({in_run}) order by id desc limit {HISTORY}"
+    )
     fits = belt.read(con, recent).to_pylist()[::-1]
     if not fits:
         # Batches piling up with no fits means the sampler isn't running (or crashed).
@@ -102,6 +104,12 @@ def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
         ]
         return {"empty": True, "waiting": waiting["n"], "oldest_s": waiting["oldest_s"]}
     latest = fits[-1]
+    run = belt.read(
+        con,
+        f"""select r.source, r.rows, (select sum(n) from batches where run_id = r.id)::bigint fed,
+                   (select count(*) from batches where run_id = r.id) batches
+            from runs r where r.id = (select run_id from batches where id = {latest["batch_id"]})""",
+    ).to_pylist()[0]
     queued = belt.read(
         con, "select count(*) n from batches where id > (select coalesce(max(batch_id), 0) from fits)"
     ).to_pylist()[0]["n"]
@@ -112,12 +120,11 @@ def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
     totals = belt.read(
         con,
         "select count(*) fits, count(*) filter (where created_at > now() - interval 60 second) last_min,"
-        f" (select count(*) from batches) batches from fits where model_id in ({current})",
+        f" from fits where model_id in ({current}) and batch_id in ({in_run})",
     ).to_pylist()[0]
     forest = belt.read(
         con,
-        f"""select p.name, p.q05, p.q25, p.q50, p.q75, p.q95, p.rhat, t.value truth
-            from params p left join truth t on t.batch_id = {latest["batch_id"]} and t.name = p.name
+        f"""select p.name, p.q05, p.q25, p.q50, p.q75, p.q95, p.rhat, p.truth from params p
             where p.fit_id = {latest["id"]} and p.var in ({forest_vars})
             order by list_position([{forest_vars}], p.var), p.pos""",
     ).to_pylist()
@@ -126,36 +133,34 @@ def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
         grid = belt.read(
             con,
             f"""select p.name, p.coords ->> {belt.lit("$." + g["rows"])} "row", p.coords ->> {belt.lit("$." + g["cols"])} col,
-                       p.q05, p.q25, p.q50, p.q75, p.q95, t.value truth
-                from params p left join truth t on t.batch_id = {latest["batch_id"]} and t.name = p.name
+                       p.q05, p.q25, p.q50, p.q75, p.q95, p.truth
+                from params p
                 where p.fit_id = {latest["id"]} and p.var = {belt.lit(g["var"])}
                 order by p.pos""",
         ).to_pylist()
     track = belt.read(
         con,
         f"""with f as ({recent})
-            select p.name, f.id, p.q05, p.q50, p.q95, t.value truth
+            select p.name, f.id, p.q05, p.q50, p.q95, p.truth
             from f join params p on p.fit_id = f.id and p.var in ({track_vars})
-            left join truth t on t.batch_id = f.batch_id and t.name = p.name
             order by list_position([{track_vars}], p.var), p.pos, f.id""",
     ).to_pylist()
     coverage = belt.read(
         con,
         f"""with f as ({recent})
-            select f.id, avg((t.value between p.q05 and p.q95)::int) cov
-            from f join params p on p.fit_id = f.id
-            join truth t on t.batch_id = f.batch_id and t.name = p.name
+            select f.id, avg((p.truth between p.q05 and p.q95)::int) cov
+            from f join params p on p.fit_id = f.id and p.truth is not null
             group by f.id order by f.id""",
     ).to_pylist()
 
     panels: dict[str, list] = {}
     for r in track:
         panels.setdefault(r["name"], []).append([r["id"], r["q05"], r["q50"], r["q95"], r["truth"]])
-    # x axis: fit sequence number within the window, so ns ids don't leak into the UI
-    index = {f["id"]: i for i, f in enumerate(fits)}
+    # x axis: the rows each fit saw, so the panels read as "as data is fed"
+    fitted = {f["id"]: f["n"] for f in fits}
     for rows in panels.values():
         for r in rows:
-            r[0] = index.get(r[0], 0)
+            r[0] = fitted[r[0]]
 
     lows = [v for r in track for v in (r["q05"], r["truth"]) if v is not None]
     highs = [v for r in track for v in (r["q95"], r["truth"]) if v is not None]
@@ -165,10 +170,11 @@ def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
         "latest": latest,
         "age_s": time.time() - latest["created_at"].timestamp(),
         "queued": queued,
+        "run": {**run, "file": Path(run["source"]).name},
         "totals": totals,
         "ess_per_s": ess_per_s[-1],
         "coverage": sum(c["cov"] for c in coverage) / len(coverage) if coverage else None,
-        "has_truth": bool(coverage),  # simulated batches carry their truth; replayed ones don't
+        "has_truth": bool(coverage),  # a simulated file carries its truth; real data doesn't
         "view": view,
         "forest": forest,
         "grid": grid,
@@ -180,7 +186,6 @@ def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
         "spark": {
             "fit_s": [f["fit_s"] for f in fits],
             "ess_per_s": ess_per_s,
-            "lag_s": [f["lag_s"] for f in fits],
             "max_rhat": [f["max_rhat"] for f in fits],
             "coverage": [c["cov"] for c in coverage],
         },
@@ -188,83 +193,25 @@ def snapshot(con: duckdb.DuckDBPyConnection) -> dict:
     }
 
 
-class ModelPanel:
-    """The model region: the PyMC graph plus a plain-English description.
+def model_view(con: duckdb.DuckDBPyConnection, model_id: int) -> dict:
+    """The model region: the newest fit's model (graph, version, git revision) and the agent's description of it.
 
-    The agent working on the model writes the description (`{{cookiecutter.project_slug}}
-    describe`), and that one wins, whenever it lands. Until it does, an LLM
-    (if a key is configured) describes the model from its graph, streamed into
-    the page and saved to `model_notes`. Descriptions belong to a version
-    (spec), so a recompile of the same model keeps its text.
+    The agent writes the description (`{{cookiecutter.project_slug}} describe`). It belongs to a
+    version (spec), so a recompile of the same model keeps its text.
     """
-
-    def __init__(self, board: Board, http: httpx.AsyncClient, cfg: LLMConfig) -> None:
-        self.board, self.http, self.cfg = board, http, cfg
-        self.template = board.env.get_template("model.html")
-        self.model_id: int | None = None
-        self.model: dict | None = None
-        self.note: dict = {}
-        self.task: asyncio.Task | None = None
-        self.described = 0  # descriptions written by the LLM since start
-
-    async def show(self, con: duckdb.DuckDBPyConnection, model_id: int) -> None:
-        saved = await asyncio.to_thread(journal.description, con, model_id)
-        if model_id == self.model_id:
-            # Same model: only an agent's description landing (or changing) repaints it.
-            if saved and saved["llm"] == journal.AGENT and saved["text"] != self.note.get("text"):
-                if self.task:
-                    self.task.cancel()
-                self.note = {"status": "done", **saved}
-                await self._render()
-            return
-        self.model_id = model_id
-        self.model = (
-            await asyncio.to_thread(belt.read, con, f"select * from models where id = {model_id}")
-        ).to_pylist()[0]
-        self.model["version"] = (await asyncio.to_thread(journal.versions, con)).get(model_id)
-        if self.task:
-            self.task.cancel()
-        if saved:
-            self.note = {"status": "done", **saved}
-        else:
-            self.note = {"status": "writing", "llm": self.cfg.model, "text": ""}
-            self.task = asyncio.create_task(self._narrate(con, model_id))
-        await self._render()
-
-    async def _narrate(self, con: duckdb.DuckDBPyConnection, model_id: int) -> None:
-        try:
-            async for text in describe(self.http, self.cfg, self.model):
-                self.note["text"] += text
-                await self._render()
-            self.note["status"] = "done"
-            self.described += 1
-            await self._render()
-            row = {
-                "model_id": [model_id], "created_at": [datetime.now(UTC)],
-                "llm": [self.cfg.model], "text": [self.note["text"]],
-            }  # fmt: skip
-            # Own cursor: the poll loop is using `con` from another thread.
-            await asyncio.to_thread(belt.write, con.cursor(), "model_notes", pa.table(row))
-        except NoCredentials as e:
-            self.note = {"status": "nokey", "llm": self.cfg.model, "text": str(e)}
-        except (LLMError, httpx.HTTPError) as e:
-            log.warning("describing model %d: %s", model_id, e)
-            self.note = {"status": "error", "llm": self.cfg.model, "text": str(e) or type(e).__name__}
-        except duckdb.Error as e:  # shown, just not saved; the next server start asks again
-            log.warning("saving the description of model %d: %s", model_id, e)
-        await self._render()
-
-    async def _render(self) -> None:
-        await self.board.publish("model", self.template.render(model=self.model, note=self.note))
+    model = belt.read(con, f"select * exclude (source) from models where id = {model_id}").to_pylist()[0]
+    model["version"] = journal.versions(con).get(model_id)
+    return {"model": model, "note": journal.description(con, model_id)}
 
 
-async def poll(url: str, token: str, board: Board, panel: ModelPanel) -> None:
+async def poll(url: str, token: str, board: Board) -> None:
     """Connect (and reconnect) to the belt, re-rendering whenever it moves.
 
     The server starts without the db: until it's reachable the page says so.
     Any error drops the connection, so a restarted db is picked up again.
     """
     template = board.env.get_template("dashboard.html")
+    model = board.env.get_template("model.html")
     agent = board.env.get_template("agent.html")
     figures = board.env.get_template("figures.html")
     con, seen, rendered_at = None, None, 0.0
@@ -291,7 +238,7 @@ async def poll(url: str, token: str, board: Board, panel: ModelPanel) -> None:
                 await board.publish("figures", figures.render(figs=await asyncio.to_thread(figures_view, con)))
                 seen, rendered_at = mark, time.monotonic()
                 if (model_id := ctx.get("latest", {}).get("model_id")) is not None:
-                    await panel.show(con, model_id)
+                    await board.publish("model", model.render(**await asyncio.to_thread(model_view, con, model_id)))
         except (duckdb.CatalogException, duckdb.BinderException) as e:
             # Reachable, but the tables aren't what this code expects (an older db file).
             log.warning("querying the belt: %s", e)
@@ -322,7 +269,6 @@ FOOTPRINTS = [
     ("data/*.parquet", "prepared {name}"),
 ]
 WORKING_S = 120  # activity this recent: working
-STALE_WAIT_S = 600  # inbox --wait checks in every ~9 min; longer than this and it may have stopped
 
 
 def footprint(root: Path) -> tuple[float, str] | None:
@@ -337,38 +283,32 @@ def footprint(root: Path) -> tuple[float, str] | None:
     return newest
 
 
-def activity(state: dict | None, files: tuple[float, str] | None, now: float) -> dict:
-    """The agent's state from its last message and its newest footprint: working, waiting, quiet, or none."""
+def activity(status: dict | None, message: dict | None, files: tuple[float, str] | None, now: float) -> dict:
+    """What the agent is doing: its newest status (`{{cookiecutter.project_slug}} status`), and its newest sign of life.
+
+    Signs of life: a status, a note or report, a file it touched. Working while
+    the newest is fresh, quiet after WORKING_S; none before the first.
+    """
     events = [files] if files else []
-    if state and state["kind"] != "status":
-        events.append((state["created_at"].timestamp(), f"posted a {state['kind']}"))
-    elif state and not state["text"].startswith("waiting"):
-        events.append((state["created_at"].timestamp(), state["text"]))  # "working on your feedback"
-    last = max(events, default=None)
-    if state and state["kind"] == "status" and state["text"].startswith("waiting"):
-        since = state["created_at"].timestamp()
-        if last is None or since >= last[0]:
-            return {"mode": "waiting", "since": state["created_at"], "stale": now - since > STALE_WAIT_S}
-    if last is None:
+    if message:
+        events.append((message["created_at"].timestamp(), f"posted a {message['kind']}"))
+    if status:
+        events.append((status["created_at"].timestamp(), status["text"]))
+    if not events:
         return {"mode": "none"}
-    mode = "working" if now - last[0] < WORKING_S else "quiet"
-    return {"mode": mode, "what": last[1], "ago_s": now - last[0]}
+    at, what = max(events)
+    return {
+        "mode": "working" if now - at < WORKING_S else "quiet", "what": what, "ago_s": now - at,
+        "status": status and status["text"], "status_ago_s": status and now - status["created_at"].timestamp(),
+    }  # fmt: skip
 
 
 def agent_view(con: duckdb.DuckDBPyConnection, root: Path | None = None) -> dict:
     """The agent region: the thread, each message labeled with its model version, and what the agent is doing."""
     versions = journal.versions(con)
     thread = [{**m, "version": versions.get(m["model_id"])} for m in journal.thread(con)]
-    files = footprint(root or Path.cwd())
-    return {"thread": thread, "activity": activity(journal.agent_state(con), files, time.time())}
-
-
-def can_write(host: str | None, feedback_from: str) -> bool:
-    """Who may send feedback and approvals: anyone who can reach the dashboard ("any"), or this machine ("local").
-
-    Feedback steers an agent that has a shell; "any" trusts everyone who can reach HOST:PORT.
-    """
-    return feedback_from == "any" or host in LOCAL
+    status, message = journal.latest(con, status=True), journal.latest(con, status=False)
+    return {"thread": thread, "activity": activity(status, message, footprint(root or Path.cwd()), time.time())}
 
 
 def figures_view(con: duckdb.DuckDBPyConnection) -> list[dict]:
@@ -376,47 +316,10 @@ def figures_view(con: duckdb.DuckDBPyConnection) -> list[dict]:
     return plots.carousel(con, journal.versions(con))
 
 
-def _writable(request: Request) -> bool:
-    return can_write(request.client.host if request.client else None, request.app.state.feedback_from)
-
-
 async def page(request: Request) -> HTMLResponse:
     board: Board = request.app.state.board
-    html = board.env.get_template("page.html").render(app_name=APP_NAME, can_write=_writable(request), **board.regions)
+    html = board.env.get_template("page.html").render(app_name=APP_NAME, **board.regions)
     return HTMLResponse(html)
-
-
-async def _user_message(request: Request, kind: str, text: str | None) -> Response:
-    """Post a user message to the thread; the stream repaints, so 204."""
-    if not _writable(request):
-        return PlainTextResponse("feedback and approval are localhost-only here (FEEDBACK_FROM=local)", status_code=403)
-    board: Board = request.app.state.board
-    if board.con is None:
-        return PlainTextResponse("the belt isn't reachable", status_code=503)
-    con = belt.cursor(board.con)  # the poll loop uses board.con from another thread
-
-    def write() -> None:
-        model_id = journal.latest_model(con)
-        body = text
-        if kind == "approve":
-            if model_id is None:
-                return
-            version = journal.versions(con).get(model_id)
-            body = f"Approved v{version}: commit this model."
-        journal.post(con, "user", kind, body, model_id)
-
-    if text or kind == "approve":
-        await asyncio.to_thread(write)
-    return Response(status_code=204)
-
-
-async def post_message(request: Request) -> Response:
-    signals = await read_signals(request) or {}
-    return await _user_message(request, "feedback", str(signals.get("feedback", "")).strip())
-
-
-async def approve(request: Request) -> Response:
-    return await _user_message(request, "approve", None)
 
 
 async def stream(request: Request) -> DatastarResponse:
@@ -442,17 +345,21 @@ async def stream(request: Request) -> DatastarResponse:
 
 
 async def figure(request: Request) -> Response:
-    """One figure's PNG. Ids are never reused (a newer render gets a new id), so it caches forever."""
+    """One figure: the agent's PNG (/figures/ID.png) or a diagnostic's data (/figures/ID.json).
+
+    Ids are never reused (a newer render gets a new id), so either caches forever.
+    """
     board: Board = request.app.state.board
     if board.con is None:
         return PlainTextResponse("the belt isn't reachable", status_code=503)
+    column, media = ("png", "image/png") if request.path_params["ext"] == "png" else ("data", "application/json")
     con = belt.cursor(board.con)
-    sql = f"select png from figures where id = {int(request.path_params['figure_id'])}"
+    sql = f"select {column} v from figures where id = {int(request.path_params['figure_id'])} and {column} is not null"
     rows = await asyncio.to_thread(belt.read, con, sql)
     if not rows.num_rows:
         return PlainTextResponse("no such figure (a newer render may have replaced it)", status_code=404)
     headers = {"Cache-Control": "public, max-age=31536000, immutable"}
-    return Response(rows["png"][0].as_py(), media_type="image/png", headers=headers)
+    return Response(rows["v"][0].as_py(), media_type=media, headers=headers)
 
 
 async def healthz(request: Request) -> PlainTextResponse:
@@ -462,10 +369,8 @@ async def healthz(request: Request) -> PlainTextResponse:
 async def metrics(request: Request) -> PlainTextResponse:
     """Prometheus text format, hand-written: a handful of gauges and counters."""
     board: Board = request.app.state.board
-    panel: ModelPanel = request.app.state.panel
-    values = {**board.counters, "llm_descriptions_total": panel.described}
     lines = []
-    for name, value in values.items():
+    for name, value in board.counters.items():
         kind = "counter" if name.endswith("_total") else "gauge"
         lines += [f"# TYPE dashboard_{name} {kind}", f"dashboard_{name} {value}"]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
@@ -481,34 +386,25 @@ def make_env() -> Environment:
 
 
 def create_app() -> Starlette:
-    """App factory (uvicorn --factory), configured from QUACK_URL / QUACK_TOKEN / FEEDBACK_FROM."""
+    """App factory (uvicorn --factory), configured from QUACK_URL / QUACK_TOKEN."""
     url, token = os.environ.get("QUACK_URL", "quack:localhost"), os.environ["QUACK_TOKEN"]
-    feedback_from = os.environ.get("FEEDBACK_FROM", "any")
-    if feedback_from not in ("any", "local"):
-        raise SystemExit(f"FEEDBACK_FROM must be 'any' or 'local', not {feedback_from!r}")
     env = make_env()
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):
         app.state.board = Board(env)
-        app.state.feedback_from = feedback_from
-        # LLM_* / OPENROUTER_API_KEY from the environment (.env via mise), as in nhtsa.
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as http:
-            panel = app.state.panel = ModelPanel(app.state.board, http, LLMConfig.from_env())
-            task = asyncio.create_task(poll(url, token, app.state.board, panel))
-            yield
-            task.cancel()
+        task = asyncio.create_task(poll(url, token, app.state.board))
+        yield
+        task.cancel()
 
     static = Path(__file__).parent / "static"
     routes = [
         Route("/", page),
         Route("/stream", stream),
-        Route("/messages", post_message, methods=["POST"]),
-        Route("/approve", approve, methods=["POST"]),
         Route("/healthz", healthz),
         Route("/metrics", metrics),
         Mount("/static", StaticFiles(directory=static), name="static"),
-        Route("/figures/{figure_id:int}.png", figure),
+        Route("/figures/{figure_id:int}.{ext:str}", figure),
     ]
     return Starlette(routes=routes, lifespan=lifespan)
 

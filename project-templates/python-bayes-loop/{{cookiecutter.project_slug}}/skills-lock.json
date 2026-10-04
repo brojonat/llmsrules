@@ -19,12 +19,6 @@
       "skillPath": "skills/datastar/SKILL.md",
       "computedHash": "a1838c986bdc58189f7e7dd778dca68e44ffb0ba6bca743b2d072577d0e626c6"
     },
-    "k8s-deployment": {
-      "source": "brojonat/llmsrules",
-      "sourceType": "github",
-      "skillPath": "skills/k8s-deployment/SKILL.md",
-      "computedHash": "4932f333bf6c80b56ed8765719906aefa0bf842c77ae3f8c115e2550b874c39b"
-    },
     "prior-elicitation": {
       "source": "pymc-labs/python-analytics-skills",
       "sourceType": "github",

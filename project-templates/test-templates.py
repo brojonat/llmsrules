@@ -16,6 +16,7 @@ Usage:
     ./test-templates.py clean                 # Remove test output
 """
 
+import json
 import os
 import shutil
 import signal
@@ -735,20 +736,32 @@ def validate_bayes_loop(project_dir: Path) -> None:
     subprocess.run([str(project_dir / ".venv" / "bin" / "pytest"), "-q"], cwd=project_dir, env=env, check=True)
     success("tests pass (includes feed -> db -> sample over Quack)")
 
-    log("Running the belt briefly on CPU (db, feed, sample, serve)...")
+    sim = ["simulate", "--n", "1000", "--dim", "group=3", "--dim", "feature=2", "--out", "data/sim.parquet"]
+    run_with_output([exe, *sim], cwd=project_dir)
+    success("simulate writes a dataset and its truth")
+
+    log("Running the belt briefly on CPU (db, sample, plots, serve), then feeding it...")
     (project_dir / "logs").mkdir(exist_ok=True)
     procs = []
     try:
         for args in (
             ["db", "--path", "data/belt.duckdb"],
-            ["feed", "--n", "1000", "--dim", "group=3", "--dim", "feature=2", "--every", "1"],
-            ["sample", "--chains", "16", "--warmup", "100", "--draws", "20", "--latest"],
+            ["sample", "--chains", "16", "--warmup", "100", "--draws", "20"],
             ["plots"],
             ["serve", "--port", "18765"],
         ):
             procs.append(subprocess.Popen([exe, *args], cwd=project_dir, env=env,
                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
             time.sleep(1)
+        # feed waits for each batch's fit: half the file, then the rest in two chunks.
+        feed = [exe, "feed", "--from", "data/sim.parquet", "--timeout", "180"]
+        first = subprocess.run([*feed, "--rows", "50%"], cwd=project_dir, env=env, capture_output=True, text=True)
+        rest = subprocess.run([*feed, "--chunk", "250"], cwd=project_dir, env=env, capture_output=True, text=True)
+        fed = [json.loads(line)["rows"] for line in (first.stdout + rest.stdout).splitlines() if line.strip()]
+        if fed == [500, 750, 1000]:
+            success("feed moves its cursor: half, then the rest in chunks, a fit each")
+        else:
+            warn(f"feed sent {fed}, wanted [500, 750, 1000]: {first.stderr[-300:]} {rest.stderr[-300:]}")
         base = "http://127.0.0.1:18765"
         deadline = time.time() + 120
         page = ""
@@ -775,14 +788,15 @@ def validate_bayes_loop(project_dir: Path) -> None:
             success("the plots service renders figures into the dashboard's carousel")
         else:
             warn("no figures within 90s")
-        # The agent thread: a note from the CLI shows up on the dashboard.
+        # The agent's journal: a note and a status from the CLI show up on the dashboard.
         subprocess.run([exe, "note", "validation note"], cwd=project_dir, env=env, check=True, capture_output=True)
+        subprocess.run([exe, "status", "validating"], cwd=project_dir, env=env, check=True, capture_output=True)
         time.sleep(3)
         r = subprocess.run(["curl", "-sf", base + "/"], capture_output=True, timeout=10, text=True)
-        if "validation note" in r.stdout:
-            success("an agent note lands in the dashboard's thread")
+        if "validation note" in r.stdout and "validating" in r.stdout:
+            success("an agent note and status land on the dashboard")
         else:
-            warn("the agent note did not show on the dashboard")
+            warn("the agent note or status did not show on the dashboard")
         for path, needle in [("/healthz", "ok"), ("/metrics", "dashboard_belt_up 1")]:
             r = subprocess.run(["curl", "-sf", base + path], capture_output=True, timeout=10, text=True)
             if needle in r.stdout:

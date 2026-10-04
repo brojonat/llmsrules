@@ -55,7 +55,7 @@ like to structure my projects.
 | `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
 | `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2 + HTMX, Postgres, MinIO  |
 | `python-bayesian-experiment` | Bayesian experiments    | PyMC + ArviZ, MLflow tracking, FastAPI, Click CLI, tmux dev session   |
-| `python-bayes-loop`          | Agent-built Bayesian models | Hand an agent a dataset + problem; it builds a PyMC model (new-model skill, model contract) that refits per batch on a DuckDB belt over Quack (compiled once to JAX, ChEES/NUTS), while you watch and steer on a Datastar dashboard (agent thread, feedback, approve → commit), tmux loop, one-pod GPU k8s, mise |
+| `python-bayes-loop`          | Agent-built Bayesian models | Hand an agent a dataset + problem; it builds a PyMC model (new-model skill, model contract) on a DuckDB belt over Quack (compiled once to JAX, ChEES/NUTS), feeding data the way you ask (all at once or in chunks, each fit on everything so far), while you watch a read-only Datastar dashboard (the agent's journal, figures) and steer in the agent's chat; tmux loop, local, mise |
 
 All templates include: a task runner, Dockerfile, K8s manifests,
 `.gitignore`, `AGENTS.md`, `CHANGELOG.md` — except the two

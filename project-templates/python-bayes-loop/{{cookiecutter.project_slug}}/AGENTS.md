@@ -5,10 +5,11 @@
 Read `README.md` first for the architecture, then `TODO.md` for what is in
 flight, then `LEARNINGS.md` for what has bitten people.
 
-**Resuming?** `mise run loop:cpu` (no-op if it's running), then `mise run inbox`:
-the user's feedback from the dashboard is your next task. Post what you do with
-`mise run note`; commit a model only when an `approve` message (or the user)
-says so.
+**Resuming?** `mise run loop:cpu` (no-op if it's running), then read the
+thread (`mise run query "select created_at, kind, text from messages order by id"`).
+The user steers from your session; the dashboard is read-only. Post what you do
+with `mise run note`, what you're doing with `mise run status`; commit a model
+only when the user says so.
 
 **Given a dataset and a problem to model?** Use the `new-model` skill
 (`.agents/skills/new-model/SKILL.md`). It covers `prepare.sql`, rewriting
@@ -18,15 +19,16 @@ PyMC skills it leans on with `mise run skills`.
 | Task | Command |
 | --- | --- |
 | Setup | `mise run setup` (CPU) or `setup:gpu`, then `mise run skills` |
-| Everything, GPU | `mise run up` (db + feed + sample + dev; tees `logs/*.log`) |
+| Everything, GPU | `mise run up` (db + sample + plots + dev; tees `logs/*.log`) |
 | Everything, CPU | `mise run up:cpu` (small problem, own db file) |
 | Everything, in tmux | `mise run loop:cpu` / `loop` (`up [NAME...]`, `status`, `restart NAME`, `down`); `up db dev` right after setup so the user can watch |
 | Dashboard only | `mise run dev` (hot reload, replaces a stale server on the port) |
 | SQL on the belt | `mise run query "select ..."` |
 | Model contract | `mise run check-model` (after every edit to `model.py`) |
-| Talk to the user | `mise run note "..."` (dashboard thread), `mise run inbox [--wait 540]` (their messages), `mise run describe -` (the model's description) |
+| Show the user | `mise run note "..."` (dashboard thread), `mise run status "..."` (what you're doing now), `mise run describe -` (the model's description) |
 | Figures | `mise run figures --save /tmp/figs` (read them), `mise run figure plot.png --title "..."` (add yours) |
-| Data prep | `mise run prepare` (runs `prepare.sql`) |
+| Data prep | `mise run prepare` (runs `prepare.sql`); `mise run simulate` writes a dataset with known truth |
+| Feed data | `mise run feed` (all of it; waits for the fit), `--rows N\|P%`, `--chunk N`, `--restart`: every fit sees all rows fed so far |
 | Tests | `mise run test` (CPU) |
 | Lint | `mise run lint` / `mise run fmt` |
 | Benchmarks | `mise run bench`; a file: `{{cookiecutter.project_slug}} bench --from FILE --n N --params` |

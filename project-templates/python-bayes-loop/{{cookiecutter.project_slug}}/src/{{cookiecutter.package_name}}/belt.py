@@ -29,31 +29,36 @@ import pyarrow as pa
 log = logging.getLogger(__name__)
 
 SCHEMA = """
-create table if not exists batches(
-    id bigint, created_at timestamptz, n integer, coords varchar);  -- coords: JSON {dim: [labels]}
-create table if not exists truth(batch_id bigint, name varchar, value float);
+create table if not exists runs(
+    id bigint, created_at timestamptz, source varchar, order_by varchar, rows bigint, mtime double, coords varchar);
+    -- one pass of feed's cursor through a data file (feed.py); rows: the file's size;
+    -- coords: JSON {dim: [labels]}, from the whole file, so every fit in the run shares them
+create table if not exists batches(id bigint, created_at timestamptz, run_id bigint, first_row bigint, n integer);
+    -- the run's rows first_row .. first_row + n - 1; a fit of a batch sees every row fed in its run so far
+create table if not exists truth(run_id bigint, name varchar, value float);  -- a simulated file's true parameters
 create table if not exists models(
     id bigint, created_at timestamptz, n integer, coords varchar,
     dot varchar, spec varchar, context varchar, view varchar, source varchar, git_rev varchar);
     -- dot: model_to_graphviz; spec: str_repr(); context: author's note; view: what the dashboard plots (JSON);
     -- source: model.py as compiled; git_rev: HEAD, "+dirty" if model.py differs from it (null outside git)
 create table if not exists model_notes(
-    model_id bigint, created_at timestamptz, llm varchar, text varchar);  -- written by the web server
+    model_id bigint, created_at timestamptz, text varchar);  -- the agent's description ({{cookiecutter.project_slug}} describe)
 create table if not exists messages(
-    id bigint, created_at timestamptz, author varchar, kind varchar, model_id bigint, text varchar);
-    -- the agent <-> dashboard thread (journal.py). author: agent | user
-create table if not exists handled(message_id bigint, handled_at timestamptz);  -- user messages the agent has read
+    id bigint, created_at timestamptz, kind varchar, model_id bigint, text varchar);
+    -- the agent's journal on the dashboard (journal.py). kind: note | report | commit | status
 create table if not exists draws(fit_id bigint, created_at timestamptz, npz blob);  -- thinned, for plots.py
 create table if not exists figures(
     id bigint, created_at timestamptz, model_id bigint, fit_id bigint, author varchar, kind varchar,
-    title varchar, png blob);  -- the dashboard's carousel (plots.py): renders and the agent's own
+    title varchar, png blob, data varchar);
+    -- the dashboard's carousel (plots.py): the agent's PNGs, and the data (JSON) of each version's diagnostics
 create table if not exists fits(
     id bigint, batch_id bigint, model_id bigint, created_at timestamptz, sampler varchar, device varchar,
     chains integer, draws integer, n integer, fit_s double, summarize_s double, lag_s double,
     grad_evals bigint, divergences integer, min_ess double, max_rhat double, compile_s double);
 create table if not exists params(
     fit_id bigint, pos integer, var varchar, name varchar, coords varchar, mean float, sd float,
-    q05 float, q25 float, q50 float, q75 float, q95 float, ess float, rhat float);
+    q05 float, q25 float, q50 float, q75 float, q95 float, ess float, rhat float, truth float);
+    -- truth: simulated batches only
 """
 
 
@@ -72,7 +77,7 @@ def serve(path: str, url: str, token: str, ddl: str, housekeep_s: float = 60.0) 
 
     Localhost only: Quack refuses other hostnames by default, and its clients
     switch to HTTPS for any non-localhost host. Every process that talks to the
-    belt runs on the same machine (or in the same pod).
+    belt runs on the same machine.
     """
     con = duckdb.connect(path)
     con.execute("INSTALL quack; LOAD quack;")
@@ -141,6 +146,26 @@ def read(con: duckdb.DuckDBPyConnection, sql: str) -> pa.Table:
     produced (ints, floats), never user input.
     """
     return con.execute(f"select * from query({lit(sql)})").to_arrow_table()
+
+
+def fed(con: duckdb.DuckDBPyConnection, batch_id: int) -> pa.Table:
+    """Every obs row fed in the batch's run up to and including it, in feed order, without batch_id.
+
+    What a fit of the batch sees, and what model.from_arrow takes.
+    """
+    b = int(batch_id)
+    return read(
+        con,
+        f"""select o.* exclude (batch_id) from obs o join batches b on b.id = o.batch_id
+            where b.run_id = (select run_id from batches where id = {b}) and b.id <= {b}
+            order by b.id, o.rowid""",
+    )
+
+
+def coords(con: duckdb.DuckDBPyConnection, batch_id: int) -> str:
+    """The labels (JSON) of the batch's run."""
+    sql = f"select r.coords from batches b join runs r on r.id = b.run_id where b.id = {int(batch_id)}"
+    return read(con, sql)["coords"][0].as_py()
 
 
 def cursor(con: duckdb.DuckDBPyConnection) -> duckdb.DuckDBPyConnection:

@@ -2,16 +2,17 @@
 
   bench   refit fresh same-shape data (simulated, or a file's chunks); one JSON line per fit
   db      own data/belt.duckdb and serve it over Quack
-  feed    insert batches: simulated from a drifting truth, or replayed from a file
-  sample  fit each new batch on the GPU, write summaries
+  simulate  write a dataset from the model's simulator (and its true parameters)
+  feed    send the next rows of a data file; the sampler fits everything fed so far
+  sample  fit each new batch (on every row fed before it), write summaries
   serve   the dashboard
   note    post to the dashboard's agent thread: what changed and why, results, a report
-  inbox   the dashboard user's unread messages (JSON per line); --wait blocks for one
+  status  tell the dashboard what you're doing right now
   source  the model.py a model version was compiled from
   describe  the dashboard's plain-English description of the current model version
   plots   render the dashboard's figures (ArviZ) for each model version's latest fit
   figure  add a PNG of your own to the dashboard's figures
-  figures the figures on the dashboard (JSON per line); --save DIR writes the PNGs to look at
+  figures the figures on the dashboard (JSON per line); --save DIR writes each one's PNG or data
 
 JSON on stdout, progress on stderr. Quack settings come from QUACK_URL and
 QUACK_TOKEN (see mise.toml).
@@ -130,23 +131,27 @@ def cmd_db(args) -> None:
     belt.serve(args.path, *_quack(), ddl=OBS_DDL, housekeep_s=_env("BELT_HOUSEKEEP_S", 60.0))
 
 
-def cmd_feed(args) -> None:
+def cmd_simulate(args) -> None:
     import numpy as np
 
+    from {{cookiecutter.package_name}} import feed
+
+    print(json.dumps(feed.simulate(args.out, np.random.default_rng(args.seed), n=args.n, sizes=_sizes(args))))
+
+
+def cmd_feed(args) -> None:
     from {{cookiecutter.package_name}} import belt, feed
 
-    sizes = None if args.source else _sizes(args)  # bad sizes fail before waiting on the db
-    con = belt.connect(*_quack())
+    if args.chunk is not None and args.chunk < 1:
+        sys.exit("--chunk wants at least 1 row")
+    con = belt.connect(*_quack(), wait_s=5)
     try:
-        if args.source:
-            feed.replay(con, args.source, n=args.n, order_by=args.order_by, every=args.every, count=args.count)
-        else:
-            feed.simulate(
-                con, np.random.default_rng(args.seed), n=args.n, sizes=sizes,
-                every=args.every, drift=args.drift, count=args.count,
-            )  # fmt: skip
-    except KeyboardInterrupt:
-        pass
+        feed.run(
+            con, args.source, order_by=args.order_by, rows=args.rows, chunk=args.chunk,
+            restart=args.restart, timeout=args.timeout,
+        )  # fmt: skip
+    except KeyboardInterrupt:  # the batches sent so far stay on the belt, and the cursor after them
+        sys.exit(130)
 
 
 def cmd_sample(args) -> None:
@@ -156,7 +161,7 @@ def cmd_sample(args) -> None:
     con = belt.connect(*_quack())
     _run_until_signal(
         worker.run, con, sampler=args.sampler, chains=args.chains, warmup=args.warmup,
-        draws=args.draws, latest=args.latest, poll=args.poll, seed=args.seed, refit=args.refit,
+        draws=args.draws, poll=args.poll, seed=args.seed,
     )  # fmt: skip
 
 
@@ -228,10 +233,11 @@ def cmd_figures(args) -> None:
         Path(args.save).mkdir(parents=True, exist_ok=True)
     for f in figs:
         row = {k: f[k] for k in ("id", "version", "kind", "title", "author")}
-        if args.save:
-            png = belt.read(con, f"select png from figures where id = {f['id']}")["png"][0].as_py()
-            row["path"] = str(Path(args.save) / f"{f['key']}.png")
-            Path(row["path"]).write_bytes(png)
+        if args.save:  # the agent's PNGs as they are; a diagnostic as the data the dashboard draws it from
+            column, ext = ("png", "png") if f["is_png"] else ("data", "json")
+            value = belt.read(con, f"select {column} v from figures where id = {f['id']}")["v"][0].as_py()
+            row["path"] = str(Path(args.save) / f"{f['key']}.{ext}")
+            Path(row["path"]).write_bytes(value if f["is_png"] else value.encode())
         print(json.dumps(row))
 
 
@@ -243,7 +249,7 @@ def cmd_note(args) -> None:
         sys.exit("nothing to post: give the text as arguments, or - to read it from stdin")
     con = belt.connect(*_quack(), wait_s=5)
     model_id = journal.latest_model(con) if args.model is None else args.model
-    message_id = journal.post(con, "agent", args.kind, text, model_id)
+    message_id = journal.post(con, args.kind, text, model_id)
     print(json.dumps({"id": message_id, "kind": args.kind, "model_id": model_id}))
 
 
@@ -261,24 +267,12 @@ def cmd_describe(args) -> None:
     print(json.dumps({"model_id": model_id, "version": journal.versions(con).get(model_id)}))
 
 
-def cmd_inbox(args) -> None:
+def cmd_status(args) -> None:
     from {{cookiecutter.package_name}} import belt, journal
 
     con = belt.connect(*_quack(), wait_s=5)
-    messages = journal.unread(con)
-    if not messages and args.wait:
-        journal.post(con, "agent", "status", "waiting for feedback")
-        deadline = time.monotonic() + args.wait
-        while not messages and time.monotonic() < deadline:
-            time.sleep(1.0)
-            messages = journal.unread(con)
-    if not messages:
-        return
-    journal.mark_read(con, [m["id"] for m in messages])
-    journal.post(con, "agent", "status", "working on your feedback")
-    versions = journal.versions(con)
-    for m in messages:
-        print(json.dumps({**m, "version": versions.get(m["model_id"])}, default=str))
+    message_id = journal.post(con, "status", " ".join(args.text).strip(), journal.latest_model(con))
+    print(json.dumps({"id": message_id, "kind": "status"}))
 
 
 def cmd_source(args) -> None:
@@ -325,7 +319,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def problem(sp, n=100_000):
-        sp.add_argument("--n", type=int, default=n, help="observations per batch")
+        sp.add_argument("--n", type=int, default=n, help="rows: per refit (bench), or to write (simulate)")
         sp.add_argument(
             "--dim", action="append", metavar="NAME=SIZE",
             help="simulated dim size, repeatable (default: model.SIM_DIMS, then BELT_DIMS)",
@@ -338,21 +332,13 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
         sp.add_argument("--draws", type=int, default=draws)
         sp.add_argument("--seed", type=int, default=0)
 
-    def source(sp, env: bool):
-        """--from/--order-by; with env, defaulted from FEED_FROM/FEED_ORDER_BY (feed only: bench stays simulated)."""
-        sp.add_argument(
-            "--from", dest="source", metavar="PATH", default=(os.environ.get("FEED_FROM") or None) if env else None,
-            help="a file of obs rows (parquet/csv/json, columns as model.OBS_DDL), in chunks of --n rows"
-            + (" (env FEED_FROM)" if env else ""),
-        )  # fmt: skip
-        sp.add_argument(
-            "--order-by", metavar="COLUMN", default=(os.environ.get("FEED_ORDER_BY") or None) if env else None,
-            help="with --from: chunk in this column's order, e.g. a timestamp" + (" (env FEED_ORDER_BY)" if env else ""),
-        )  # fmt: skip
-
     sp = sub.add_parser("bench", help="refit fresh same-shape data (simulated, or --from a file); JSON per fit")
     problem(sp)
-    source(sp, env=False)
+    sp.add_argument(
+        "--from", dest="source", metavar="PATH",
+        help="a file of obs rows (parquet/csv/json, columns as model.OBS_DDL), in chunks of --n rows",
+    )  # fmt: skip
+    sp.add_argument("--order-by", metavar="COLUMN", help="with --from: chunk in this column's order, e.g. a timestamp")
     sampling(sp, [*SAMPLER_NAMES, *BASELINE_NAMES], chains=8, warmup=500, draws=500, sampler="nuts")
     sp.add_argument(
         "--reps", type=int, default=3,
@@ -368,29 +354,45 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     sp.add_argument("--path", default=os.environ.get("BELT_DB", "data/belt.duckdb"))
     sp.set_defaults(fn=cmd_db)
 
-    # feed and sample take their defaults from the environment so a mise profile
-    # (mise.cpu.toml) can resize the whole belt; flags still win.
-    sp = sub.add_parser("feed", help="insert batches: simulated, or replayed from a file")
-    problem(sp, n=_env("BELT_N", 100_000))
-    source(sp, env=True)
-    sp.add_argument("--every", type=float, default=_env("FEED_EVERY", 1.0), help="seconds between batches")
-    sp.add_argument("--drift", type=float, default=0.02, help="simulator: random-walk scale of the truth")
-    sp.add_argument("--count", type=int, default=0, help="stop after this many (0 = forever, or the whole file)")
+    # simulate, feed and sample take their defaults from the environment so a mise
+    # profile (mise.cpu.toml) or .env can set them; flags still win.
+    sp = sub.add_parser("simulate", help="write a dataset from the model's simulator, and its truth beside it")
+    problem(sp, n=_env("SIM_ROWS", 100_000))
     sp.add_argument("--seed", type=int, default=0)
+    sp.add_argument(
+        "--out", default=os.environ.get("FEED_FROM") or "data/sim.parquet",
+        help="parquet file to write (env FEED_FROM, else data/sim.parquet); the truth goes to <out>.truth.json",
+    )  # fmt: skip
+    sp.set_defaults(fn=cmd_simulate)
+
+    sp = sub.add_parser(
+        "feed", help="send the next rows of a data file; waits for each batch's fit (on every row fed so far)"
+    )
+    sp.add_argument(
+        "--from", dest="source", metavar="PATH", default=os.environ.get("FEED_FROM") or "data/sim.parquet",
+        help="a file of obs rows (parquet/csv/json, columns as model.OBS_DDL) (env FEED_FROM, else data/sim.parquet)",
+    )  # fmt: skip
+    sp.add_argument(
+        "--order-by", metavar="COLUMN", default=os.environ.get("FEED_ORDER_BY") or None,
+        help="feed in this column's order, e.g. a timestamp (env FEED_ORDER_BY)",
+    )  # fmt: skip
+    sp.add_argument(
+        "--rows", metavar="N|P%", help="how many rows to send: a count, or a share of the file (default: the rest)"
+    )
+    sp.add_argument(
+        "--chunk", type=int, metavar="N", help="send them N rows at a time, a fit after each (default: all at once)"
+    )
+    sp.add_argument("--restart", action="store_true", help="start a new run: the cursor goes back to row 0")
+    sp.add_argument(
+        "--timeout", type=float, default=_env("FEED_TIMEOUT", 900.0), metavar="SECONDS",
+        help="how long to wait for each batch's fit (env FEED_TIMEOUT)",
+    )  # fmt: skip
     sp.set_defaults(fn=cmd_feed)
 
-    sp = sub.add_parser("sample", help="fit each new batch, write summaries")
+    sp = sub.add_parser("sample", help="fit each new batch on every row fed so far; on start, refit the newest")
     sampling(
         sp, SAMPLER_NAMES, chains=_env("SAMPLE_CHAINS", 256), warmup=_env("SAMPLE_WARMUP", 300),
         draws=_env("SAMPLE_DRAWS", 50),
-    )  # fmt: skip
-    sp.add_argument(
-        "--latest", action="store_true", default=bool(_env("SAMPLE_LATEST", 0)),
-        help="skip a backlog: always fit the newest batch",
-    )  # fmt: skip
-    sp.add_argument(
-        "--refit", type=int, default=_env("SAMPLE_REFIT", 0), metavar="N",
-        help="on start, re-fit the newest N batches with the current model (after a model edit)",
     )  # fmt: skip
     sp.add_argument("--poll", type=float, default=0.05, help="seconds between checks when idle")
     sp.set_defaults(fn=cmd_sample)
@@ -401,12 +403,9 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     sp.add_argument("--model", type=int, default=None, help="model id it's about (default: the one on the dashboard)")
     sp.set_defaults(fn=cmd_note)
 
-    sp = sub.add_parser("inbox", help="print (and mark read) the dashboard user's unread messages, JSON per line")
-    sp.add_argument(
-        "--wait", type=float, default=0, metavar="SECONDS",
-        help="block up to this long for a message; the dashboard shows the agent as waiting",
-    )  # fmt: skip
-    sp.set_defaults(fn=cmd_inbox)
+    sp = sub.add_parser("status", help="tell the dashboard what you're doing right now")
+    sp.add_argument("text", nargs="+", help="a few words, e.g. 'refitting with a Student-t likelihood'")
+    sp.set_defaults(fn=cmd_status)
 
     sp = sub.add_parser("describe", help="set the dashboard's plain-English description of the current model")
     sp.add_argument("text", nargs="+", help="two short paragraphs; - reads them from stdin")
@@ -430,8 +429,8 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     sp.add_argument("--title", required=True, help="the caption, e.g. 'Observed vs expected churners by tenure'")
     sp.set_defaults(fn=cmd_figure)
 
-    sp = sub.add_parser("figures", help="list the dashboard's figures; --save DIR writes the PNGs")
-    sp.add_argument("--save", metavar="DIR", help="write each figure as DIR/<key>.png")
+    sp = sub.add_parser("figures", help="list the dashboard's figures; --save DIR writes each one's PNG or data")
+    sp.add_argument("--save", metavar="DIR", help="write each figure as DIR/<key>.png (the agent's) or .json (data)")
     sp.set_defaults(fn=cmd_figures)
 
     sp = sub.add_parser("serve", help="the dashboard")

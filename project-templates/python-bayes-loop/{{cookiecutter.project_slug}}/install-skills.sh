@@ -2,7 +2,7 @@
 # Per-skill installs, selected to match the capabilities in README.md:
 # PyMC modeling of a new dataset (priors, a regression-style model, diagnostics,
 # PyTensor shape errors),
-# a Datastar (SSE) dashboard, deployed to Kubernetes.
+# a Datastar (SSE) dashboard.
 # Each add fetches the skill's latest version; commit the resulting
 # skills-lock.json. `npx skills experimental_install` restores that exact set.
 #
@@ -19,4 +19,3 @@ npx skills add pymc-labs/python-analytics-skills -s arviz-diagnostics -y
 npx skills add pymc-labs/python-analytics-skills -s pytensor-workflows -y
 npx skills add brojonat/llmsrules -s bayesian-regression -y
 npx skills add brojonat/llmsrules -s datastar -y
-npx skills add brojonat/llmsrules -s k8s-deployment -y

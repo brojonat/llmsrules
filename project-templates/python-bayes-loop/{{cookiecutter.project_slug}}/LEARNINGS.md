@@ -59,6 +59,15 @@ new data moved the logp by more than 1.0" passed at 4x3 and failed at 4x4
 no dims unless the `Deterministic` says so; without them it is named
 `beta[3, 1]`. A dim with no coords (`obs_id`) is fine: PyMC fills integers.
 
+**Weight rows per variable, not on the summed logp.** To pad a fit's rows
+without changing the posterior, `compile._weighted_logp` asks PyMC for each
+variable's terms separately (`model.logp(vars=[v], sum=False)`), multiplies
+the observed ones (and Potentials) whose first dim is the rows' dim by a
+weight vector, and sums. With all-ones weights it equals `model.logp()`
+(`test_logp_tracks_new_data_without_rebuild` checks). Gotcha on the way:
+`pt.tensor(dtype=pm.floatX, ...)` fails with "Invalid dtype: <function
+floatX>"; `pm.floatX` is a function. Pass the string `"floatX"`.
+
 ## Samplers
 
 **Vectorized NUTS on CPU is a trap.** vmapping NUTS chains makes one batched
@@ -80,6 +89,13 @@ CLI filters.
 **Many short ChEES chains need enough warmup.** With 64 chains and 200
 warmup steps on CPU, max R̂ sat at 1.09 to 1.7. Judge convergence on R̂
 across chains, not per-chain ESS, and raise `--warmup` before trusting it.
+
+**On CPU, fit time grows much faster than the rows.** On the example model,
+2,048 rows took 12 s and 8,192 rows 188 s with 64 ChEES chains (5 s and 77 s
+with 4 NUTS chains), about 15x for 4x the data. Not yet known whether it's
+more gradient steps or slower ones. Every fit sees all rows fed so far, so
+this sets the chunk size: one row at a time is for a few hundred rows (radon,
+919 rows in chunks of 25: 37 fits in a minute), not for big files.
 
 ## GPU and process hygiene
 
@@ -170,7 +186,7 @@ Every read goes through `belt.read()`. `query()` resolves names in the
 `allow_other_hostname = true`, and clients use HTTPS for any host that isn't
 localhost, with no plain-HTTP option in 1.5.6. `quack+http:host` is not a
 scheme: ATTACH silently creates a *local file* with that name. Keep every
-belt process on one machine; in Kubernetes, one pod with one container each.
+belt process on one machine.
 
 **`create table if not exists` keeps an old table as is.** After a schema
 change the old file fails on the first insert with a column error far from
@@ -194,6 +210,12 @@ before anything touches the belt: missing columns fail with DuckDB's
 "Referenced column not found", extra columns are ignored (only `OBS_DDL`'s
 are selected), and a CSV's `"[0.1, 0.2]"` strings become a `float[]`.
 
+**Match DuckDB type names exactly, not by prefix.** `duckdb_columns().data_type`
+spells a list column `FLOAT[]`, so `startswith("FLOAT")` let the example's
+feature vector in as a number, and a histogram query (the since-removed Data
+panel) failed with "Unimplemented type for cast (FLOAT[] -> DOUBLE)". Exclude
+anything ending in `]` when you pick numeric columns.
+
 ## Dashboard
 
 **Send static regions once.** The stream keeps what each browser already has
@@ -204,26 +226,56 @@ while the dashboard repaints on every fit, throttled to 4 per second.
 pure-Python `graphviz` package; `@hpcc-js/wasm-graphviz` lays it out in the
 browser (~800 KB, imported only when the graph is on the page).
 
-**Give the LLM the author's intent, not just the graph.** From the DOT
-alone it can't know what `y` means; from a note that said the truth drifts
-over time, it wrote that the model "accounts for drift", which it doesn't.
-`model.CONTEXT` now says the model has no notion of time. Re-read the
-generated description whenever you change the model.
+**The dashboard is read-only on purpose.** It once took feedback and
+approvals from the browser, fit painted selections, and asked its own LLM
+(OpenRouter) for model descriptions. All of it duplicated the agent's
+harness: two channels split the conversation, the agent had to poll an inbox
+(`inbox --wait 540`) to hear a browser, the "any" default let anyone on the
+network steer an agent with a shell, and the second LLM described models
+worse than the agent that built them. The user steers in the agent's chat;
+the agent writes to the dashboard with `note`, `status`, `describe` and
+`figure`. Keep new features on that side of the line: if the user would ask
+the agent to do it, it's a CLI command, not a button.
 
-## Figures (arviz_plots 1.3)
+**One fit has no line to draw.** A run fed all at once has a single fit, and
+the track panels (a band and a line through the fits) drew nothing at all.
+Draw each fit as a dot, and a lone fit's interval as a bar.
 
-**`PlotCollection.savefig` wants a path, not a buffer.** Rendering to
-`io.BytesIO` fails with "argument should be a str or an os.PathLike"; write
-to a temp file and read the bytes.
+**A shared y-scale hides the small parameters.** The track panels share one
+scale, so `sigma_a` (0.08 to 0.15) read as flat next to `b_floor` (−1.4 to
+−0.6). A note written from the chart said sigma_a "stays wide longest" and
+the others "settle within 200 houses"; the numbers said otherwise. Read
+`params` (`mise run query`) before narrating how a parameter moved.
 
-**A model dim named `group` breaks `plot_prior_posterior`.** ArviZ stacks
-prior and posterior along a dim it calls `group` ("conflicting sizes for
-dimension 'group'"). Rename clashing dims for plotting only
-(`plots._rename_reserved`).
+**The dashboard holds its templates from startup.** `poll()` calls
+`get_template` once, so a template edit doesn't show until the server
+restarts. `mise run dev` restarts on any change under `src/`; a server
+started without `--reload` keeps serving the old markup.
 
-**Pick the posterior predictive plot by outcome.** `plot_ppc_dist` on a 0/1
-outcome is a meaningless two-spike density (ArviZ warns). Calibration
-(`plot_ppc_pava`) for binary, a rootogram for counts, densities otherwise.
+## Figures (d3 in the browser)
+
+**Pick the posterior predictive check by outcome.** A density of a 0/1
+outcome is a meaningless two-spike plot. Calibration for binary, a rootogram
+for counts, densities otherwise (`plots._ppc`).
+
+**Send each figure's reduced numbers, not the draws.** The posterior
+predictive is one value per draw per row: millions of numbers. `plots.py`
+reduces each figure to what it draws (bins, a KDE grid, rank histograms):
+a few KB, and a version renders in about a second where ArviZ's matplotlib
+PNGs took several. The region carries only `<figure-chart src=...>`; the
+data comes from `/figures/ID.json`, which caches forever because ids never
+change.
+
+**An SVG drawn with CSS variables doesn't survive export.** Serialized on its
+own, `stroke="var(--series-1)"` has nothing to resolve against and draws
+black or nothing. `saveFigure` copies each element's computed
+fill/stroke/font onto a clone before painting it on a canvas, and draws the
+legend inside the SVG so the PNG keeps it.
+
+**Rank plots need explaining.** People read the traces at a glance, but the
+rank plot (each chain's histogram of its draws' ranks among all chains) was
+the figure nobody understood. Every diagnostic now carries a "How to read
+this" chip (`plots.HOW_TO_READ`).
 
 ## Agents fitting new data
 
@@ -287,7 +339,25 @@ check with NUTS before changing the model.
 **Generic ML skills are the wrong lens for this.** `tabular-eda` (leakage,
 mutual information, one-hot encoding, plots) cost the trial agent time and
 missed what matters for a pooled Bayesian model: rows per group, row order,
-group coverage per batch. It was dropped; that checklist is in `new-model`.
+and what the first rows fed cover. It was dropped; that checklist is in `new-model`.
+
+**A loop that fits batch by batch makes agents invent a stream.** Given a
+static file and a template built around arriving batches, every case run
+manufactured arrival: radon fed 20 weekly snapshots of the whole survey with
+an `arrived` mask in a summed `pm.Potential`, telco and retail built
+overlapping windows. The batches were fake, and only the last fit answered
+the question. Now `feed` moves a cursor through the file and every fit sees
+all rows fed so far: "fit it all" is one batch, "watch it arrive" is chunks.
+The masked Potential also breaks row padding: its weights only reach terms
+whose first dim is the rows', and a sum over rows has no dims (check-model's
+padding test fails, as it should). A mask column for "not in yet" is a sign
+the model is working around the loop.
+
+**Feed waits for each fit.** A feeder that sends on a timer outruns or
+starves the sampler: the old CPU profile skipped to the newest batch
+(`SAMPLE_LATEST`) and tuned `FEED_EVERY` to the fit time. Waiting for each
+batch's `fits` row before sending the next makes "a fit per chunk" exact and
+needs no tuning.
 
 ## Skills and tooling
 
@@ -322,7 +392,7 @@ lowercase slug lets the title and the slug map back unambiguously.
 **CUDA wheels are an extra, not a dependency.** `jax[cuda13]` pulled ~3.5
 GB of NVIDIA wheels into every project, GPU or not, and filled a 16 GB tmpfs
 during a trial. It's the `gpu` extra now: `mise run setup` is CPU-only,
-`setup:gpu` adds CUDA, the Dockerfile asks for it. A plain `uv run` does an
+`setup:gpu` adds CUDA. A plain `uv run` does an
 inexact sync and leaves the extra installed; only `uv sync` without
 `--extra gpu` removes it.
 
@@ -336,3 +406,26 @@ would have generated projects with no skill. Anchor such rules to the root
 **A copied project needs `mise trust`.** mise refuses an untrusted
 `mise.toml` in a new directory (a scratch copy, a fresh clone), and the error
 can surface from an unrelated command like `uv sync` via mise's shims.
+
+**`uv` here is a mise shim, and mise's environment wins.** A script that
+exported `QUACK_URL` and `HOST` and then ran `uv run {{cookiecutter.project_slug}} ...` got
+mise.toml's `[env]` and `.env` instead: the throwaway belt landed on the
+default Quack port and the dashboard on 0.0.0.0. Calling `.venv/bin/{{cookiecutter.project_slug}}` directly honored the exports, including
+`HOST=127.0.0.1`, which then left the dashboard unreachable from the user's
+machine. For a side loop, call the venv's binary and pass `--host`/`--port`
+explicitly.
+
+**`pkill -f PATTERN` matches the shell that runs it.** A command line that
+contains the pattern (because it also restarts the process) kills itself
+before the restart. Kill by the pid holding the port
+(`ss -ltnpH "sport = :PORT"`) instead.
+
+**Playwright's Python package wants its own Chromium build.** `uv run --with
+playwright` failed until pointed at the system browser:
+`p.chromium.launch(executable_path="/usr/bin/chromium")`.
+
+**Check an uncommitted template edit before syncing over it.** llmsrules had
+an uncommitted 500-line diff to the template's `SKILL.md`; it was an
+editor's format-on-save reflowing markdown (wrapped lines, padded tables),
+not content. Comparing with whitespace and table padding squeezed out
+(`tr -s ' \n|-'` on both sides) showed it was safe to replace.

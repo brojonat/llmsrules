@@ -3,22 +3,14 @@
 <div class="model-grid">
   <figure>
     <model-graph dot="{{ model.dot }}"></model-graph>
-    <figcaption class="muted">{% if model.version %}v{{ model.version }} · {% endif %}{{ "git " ~ model.git_rev if model.git_rev else "not committed" }} · n = {{ model.n|num }} per batch</figcaption>
+    <figcaption class="muted">{% if model.version %}v{{ model.version }} · {% endif %}{{ "git " ~ model.git_rev if model.git_rev else "not committed" }} · compiled for up to {{ model.n|num }} rows</figcaption>
   </figure>
   <div class="note">
     <h2>What this model says</h2>
-    {% if note.status == "nokey" %}
-      <p class="muted">Waiting for the agent to describe this model (<code>{{ cli }} describe</code>).
-        Or set <code>OPENROUTER_API_KEY</code> (or <code>LLM_API_KEY</code> + <code>LLM_BASE_URL</code>) in <code>.env</code>
-        and restart <code>mise run dev</code> to have an LLM describe it from the diagram meanwhile.</p>
-    {% elif note.status == "error" %}
-      <p class="muted">Couldn't describe the model: {{ note.text }}</p>
+    {% if note %}
+      {% for para in note.text.strip().split("\n\n") %}<p>{{ para }}</p>{% endfor %}
     {% else %}
-      {% set paras = note.text.strip().split("\n\n") %}
-      {% for para in paras %}
-        <p>{{ para }}{% if loop.last and note.status == "writing" %}<span class="caret" aria-hidden="true"></span>{% endif %}</p>
-      {% endfor %}
-      <p class="muted byline">{% if note.status == "writing" %}{{ note.llm }} is reading the diagram…{% elif note.llm == "agent" %}Written by the agent working on this model.{% else %}Written by {{ note.llm }} from the diagram.{% endif %}</p>
+      <p class="muted">Waiting for the agent to describe this version (<code>{{ cli }} describe</code>).</p>
     {% endif %}
   </div>
 </div>
