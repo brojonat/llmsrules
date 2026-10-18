@@ -200,7 +200,8 @@ func (m *Metrics) Adapter() Adapter {
 func WriteJSON(w http.ResponseWriter, data interface{}, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(data)
+	// The status line is already sent, so a failed write has nowhere to go.
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func WriteJSONError(w http.ResponseWriter, message string, code int) {

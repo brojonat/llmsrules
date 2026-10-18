@@ -21,6 +21,7 @@ import (
 	"{{cookiecutter.go_mod}}/features/monitor"
 	"{{cookiecutter.go_mod}}/features/todos"
 	"{{cookiecutter.go_mod}}/internal/broker"
+	"{{cookiecutter.go_mod}}/internal/frames"
 	"{{cookiecutter.go_mod}}/internal/httpx"
 	"{{cookiecutter.go_mod}}/web/resources"
 )
@@ -30,6 +31,7 @@ type Deps struct {
 	Broker   *broker.Broker
 	Sessions sessions.Store
 	Registry *prometheus.Registry
+	Frames   *frames.Renderer
 }
 
 func New(ctx context.Context, deps Deps) (http.Handler, error) {
@@ -53,9 +55,9 @@ func New(ctx context.Context, deps Deps) (http.Handler, error) {
 	}
 
 	if err := errors.Join(
-		todos.SetupRoutes(ctx, mux, deps.Logger, deps.Broker, deps.Sessions, common...),
+		todos.SetupRoutes(ctx, mux, deps.Logger, deps.Broker, deps.Sessions, deps.Frames, common...),
 		counter.SetupRoutes(mux, deps.Logger, deps.Sessions, common...),
-		monitor.SetupRoutes(mux, deps.Logger, common...),
+		monitor.SetupRoutes(mux, deps.Logger, deps.Frames, common...),
 	); err != nil {
 		return nil, fmt.Errorf("setting up feature routes: %w", err)
 	}

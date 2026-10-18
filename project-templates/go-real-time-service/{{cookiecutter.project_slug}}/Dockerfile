@@ -1,6 +1,6 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
-RUN apk update && apk add --no-cache git ca-certificates make
+RUN apk update && apk add --no-cache git ca-certificates curl
 RUN update-ca-certificates
 
 WORKDIR /app
@@ -11,8 +11,10 @@ RUN go mod download
 COPY . .
 
 # templ code and the stylesheet are generated, not committed, so codegen has to
-# run before the compile. Same two targets the local build uses.
-RUN make generate css
+# run before the compile. Same steps as `mise run generate css`.
+RUN go tool templ generate && \
+    scripts/vendor.sh && \
+    go tool gotailwind -i web/resources/styles/styles.css -o web/resources/static/index.css
 
 RUN CGO_ENABLED=0 GOOS=linux go build -tags=prod -ldflags="-w -s" -o /bin/app ./cmd/server
 

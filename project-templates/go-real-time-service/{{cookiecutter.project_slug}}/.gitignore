@@ -6,7 +6,7 @@ bin/
 tmp/
 
 # Generated code. Not committed, so a build without codegen fails loudly
-# instead of silently compiling a stale template. Every make target that
+# instead of silently compiling a stale template. Every mise task that
 # compiles or runs the app regenerates these first.
 *_templ.go
 web/resources/static/index.css
@@ -16,7 +16,7 @@ web/resources/static/index.css
 .env.*
 !.env.example
 
-# Dev logs. The make targets mkdir this, so there is no .gitkeep to preserve.
+# Dev logs. The mise tasks mkdir this, so there is no .gitkeep to preserve.
 logs/
 
 # IDE

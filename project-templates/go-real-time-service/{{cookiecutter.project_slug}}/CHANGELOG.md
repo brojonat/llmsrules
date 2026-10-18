@@ -22,9 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Initial release
 - HTTP server on net/http ServeMux with graceful shutdown
 - Embedded NATS JetStream broker with memory-backed KV buckets
-- Datastar SSE patterns: KV-watch fragments, server push, signal patches
+- Tick-based frame renderer (`internal/frames`): views render once per tick
+  per key, streams send the newest frame, overruns are logged and exported
+- Datastar SSE patterns: per-session views, shared sampled views, signal
+  patches
 - templ views with computation kept in Go view structs
 - Live reload in dev builds; embedded, content-hashed assets in prod builds
-- Vendored client libraries as Make file targets, fetched only when missing
+- mise as the front door (`mise tasks`), pinning Go and golangci-lint
+- Vendored client libraries fetched by `scripts/vendor.sh` only when missing
 - Health check and Prometheus metrics endpoints
 - Structured JSON logging with slog

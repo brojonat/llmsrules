@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"{{cookiecutter.go_mod}}/internal/broker"
+	"{{cookiecutter.go_mod}}/internal/frames"
 	"{{cookiecutter.go_mod}}/router"
 )
 
@@ -53,6 +54,12 @@ func main() {
 						Usage:   "port for the embedded NATS server (0 picks a free one)",
 						EnvVars: []string{"NATS_PORT"},
 					},
+					&cli.DurationFlag{
+						Name:    "frame-tick",
+						Value:   100 * time.Millisecond,
+						Usage:   "how often live views re-render; also the most often a stream can update",
+						EnvVars: []string{"FRAME_TICK"},
+					},
 				},
 				Action: runServer,
 			},
@@ -84,11 +91,18 @@ func runServer(c *cli.Context) error {
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.SameSite = http.SameSiteLaxMode
 
+	registry := prometheus.NewRegistry()
+
+	// One tick loop renders every live view in the app. Features register
+	// their views on it; streams subscribe to it.
+	renderer := frames.New(c.Duration("frame-tick"), logger, registry)
+
 	handler, err := router.New(ctx, router.Deps{
 		Logger:   logger,
 		Broker:   b,
 		Sessions: sessionStore,
-		Registry: prometheus.NewRegistry(),
+		Registry: registry,
+		Frames:   renderer,
 	})
 	if err != nil {
 		return fmt.Errorf("building router: %w", err)
@@ -105,6 +119,8 @@ func runServer(c *cli.Context) error {
 	}
 
 	eg, egctx := errgroup.WithContext(ctx)
+
+	eg.Go(func() error { return renderer.Run(egctx) })
 
 	eg.Go(func() error {
 		logger.Info("server started", "addr", addr)

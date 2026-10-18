@@ -5,7 +5,7 @@
 //	dev  (default) -- serve from disk, no caching, IsDev == true
 //	prod           -- serve from an embedded FS with content-hashed names
 //
-// Build with `-tags=prod` for release binaries. `make build` does this for you.
+// Build with `-tags=prod` for release binaries. `mise run build` does this for you.
 package resources
 
 const (

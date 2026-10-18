@@ -1,0 +1,111 @@
+# mise is the front door: `mise tasks` lists everything, `mise run <task>`.
+# Extra arguments are appended to a task's command; tasks that tee wrap the
+# command in a function so appended args land on the command, not on tee.
+#
+# templ, air and gotailwind are pinned in go.mod as `tool` dependencies and run
+# with `go tool`, so the only tools mise installs are Go and the linter.
+
+[tools]
+go = "1.25"
+golangci-lint = "latest"
+
+[env]
+# Copy .env.example to .env (gitignored); loaded if present.
+_.file = { path = ".env", redact = false }
+
+[tasks.setup]
+description = "Install dependencies, vendor client assets, run codegen (needs network once)"
+run = "go mod tidy"
+depends_post = ["generate", "css"]
+
+# Codegen. Both outputs are gitignored, so every task that compiles or runs the
+# app depends on them.
+
+[tasks.generate]
+description = "Generate Go code from .templ files"
+run = "go tool templ generate"
+
+[tasks.vendor]
+description = "Download the vendored client libraries that are missing"
+run = "scripts/vendor.sh"
+
+[tasks.css]
+description = "Compile the Tailwind/DaisyUI stylesheet"
+depends = ["vendor"]
+run = "go tool gotailwind -i web/resources/styles/styles.css -o web/resources/static/index.css"
+
+[tasks.update-assets]
+description = "Re-download the vendored client libraries"
+run = [
+  'rm -f "${MISE_PROJECT_ROOT:?}/web/resources/static/datastar/datastar.js" "${MISE_PROJECT_ROOT:?}"/web/resources/styles/daisyui/daisyui*.js',
+  "scripts/vendor.sh",
+]
+
+# Build and test
+
+[tasks.build]
+description = "Build the production binary"
+depends = ["generate", "css"]
+run = "go build -tags=prod -o bin/{{cookiecutter.project_slug}} ./cmd/server"
+
+[tasks.test]
+description = "Run tests"
+depends = ["generate"]
+run = 'f() { go test -race ./... "$@"; }; f'
+
+[tasks.lint]
+description = "Run golangci-lint"
+depends = ["generate"]
+run = "golangci-lint run"
+
+[tasks.clean]
+description = "Remove build artifacts and generated code"
+run = [
+  'rm -rf "${MISE_PROJECT_ROOT:?}/bin" "${MISE_PROJECT_ROOT:?}/tmp" "${MISE_PROJECT_ROOT:?}/web/resources/static/index.css"',
+  'find "${MISE_PROJECT_ROOT:?}" -name "*_templ.go" -delete',
+]
+
+# Development. air's build command re-runs templ generate, so editing a .templ
+# file is enough and tmp/main is never stale.
+
+[tasks.dev]
+description = "Server with hot reload + stylesheet watcher, in parallel (Ctrl-C stops both)"
+depends = ["dev:server", "dev:css"]
+
+[tasks."dev:server"]
+description = "Server with hot reload, tee to logs/server.log"
+depends = ["css"]
+run = "mkdir -p logs; go tool air -c .air.toml 2>&1 | tee -i logs/server.log"
+
+[tasks."dev:css"]
+description = "Watch and rebuild the stylesheet, tee to logs/css.log"
+depends = ["vendor"]
+run = "mkdir -p logs; go tool gotailwind -i web/resources/styles/styles.css -o web/resources/static/index.css -w 2>&1 | tee -i logs/css.log"
+
+[tasks.start-dev]
+description = "dev in a detached tmux session, one window per process"
+run = '''
+tmux new-session -d -s {{cookiecutter.project_slug}} -n server 'mise run dev:server'
+tmux new-window -t {{cookiecutter.project_slug}} -n css 'mise run dev:css'
+echo "tmux session {{cookiecutter.project_slug}}: server on :8080 (logs/server.log), css watcher (logs/css.log)" >&2
+echo "attach with: tmux attach -t {{cookiecutter.project_slug}}" >&2
+'''
+
+[tasks.stop-dev]
+description = "Stop the tmux dev session"
+run = "tmux kill-session -t {{cookiecutter.project_slug}} || true"
+
+[tasks.run]
+description = "Build and run the production binary"
+depends = ["build"]
+run = 'f() { ./bin/{{cookiecutter.project_slug}} server "$@"; }; f'
+
+# Deployment
+
+[tasks.deploy]
+description = "Build, push, and apply k8s/prod (reads .env.prod)"
+run = "scripts/deploy.sh"
+
+[tasks.logs]
+description = "Tail production logs"
+run = "kubectl logs -f deployment/{{cookiecutter.project_slug}}"

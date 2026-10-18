@@ -1,7 +1,6 @@
 package todos
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/starfederation/datastar-go/datastar"
 
+	"{{cookiecutter.go_mod}}/internal/frames"
 	"{{cookiecutter.go_mod}}/internal/httpx"
 )
 
@@ -30,14 +30,15 @@ func handlePage(svc *Service, logger *slog.Logger, title string) http.Handler {
 
 // handleStream is the read path: one long-lived SSE connection per browser tab.
 //
-// It never renders in response to a request. It renders in response to the KV
-// bucket changing, which means a mutation from any source -- this tab, another
-// tab, or a background job writing to the same key -- lands on screen the same
-// way.
-func handleStream(svc *Service, logger *slog.Logger) http.Handler {
+// It never renders. It subscribes to this session's view on the frame renderer
+// and sends whatever frame is newest, so a mutation from any source -- this
+// tab, another tab, or a background job writing to the same key -- lands on
+// screen the same way, at most one tick later.
+func handleStream(svc *Service, renderer *frames.Renderer, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Must run before the SSE upgrade: it may set the session cookie, and
-		// headers are flushed the moment the stream opens.
+		// headers are flushed the moment the stream opens. It also seeds the
+		// board, so the first render has something to read.
 		sessionID, _, err := svc.Board(w, r)
 		if err != nil {
 			logger.ErrorContext(r.Context(), "todos: load board", "error", err)
@@ -45,43 +46,21 @@ func handleStream(svc *Service, logger *slog.Logger) http.Handler {
 			return
 		}
 
-		ctx := r.Context()
-		watcher, err := svc.Watch(ctx, sessionID)
+		sub, err := renderer.Subscribe(viewKey(sessionID))
 		if err != nil {
-			logger.ErrorContext(ctx, "todos: watch", "error", err)
+			logger.ErrorContext(r.Context(), "todos: subscribe", "error", err)
 			httpx.WriteJSONError(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		defer watcher.Stop()
+		defer sub.Close()
 
-		sse := datastar.NewSSE(w, r)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case entry, open := <-watcher.Updates():
-				if !open {
-					return
-				}
-				// A nil entry marks the end of the initial replay, not an error.
-				if entry == nil {
-					continue
-				}
-
-				board := &Board{}
-				if err := json.Unmarshal(entry.Value(), board); err != nil {
-					logger.ErrorContext(ctx, "todos: decode board", "error", err)
-					return
-				}
-
-				if err := sse.PatchElementTempl(TodosView(NewView(board))); err != nil {
-					// Normal on disconnect; the client reconnects on its own.
-					logger.DebugContext(ctx, "todos: stream closed", "error", err)
-					return
-				}
-			}
+		sse := datastar.NewSSE(w, r, datastar.WithCompression())
+		err = sub.Stream(r.Context(), func(html []byte) error {
+			return sse.PatchElements(string(html))
+		})
+		if err != nil {
+			// Normal on disconnect; the client reconnects on its own.
+			logger.DebugContext(r.Context(), "todos: stream closed", "error", err)
 		}
 	})
 }

@@ -1,10 +1,13 @@
 package todos
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/delaneyj/toolbelt/id"
@@ -12,13 +15,17 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"{{cookiecutter.go_mod}}/internal/broker"
+	"{{cookiecutter.go_mod}}/internal/frames"
 )
 
 const (
 	bucketName  = "todos"
 	bucketTTL   = time.Hour
 	sessionName = "todos-session"
+	viewPrefix  = "todos/"
 )
+
+func viewKey(sessionID string) string { return viewPrefix + sessionID }
 
 // Service owns the board state. Boards live in a NATS KV bucket keyed by
 // session ID, which is what makes the read path a watch rather than a poll.
@@ -55,28 +62,54 @@ func (s *Service) Board(w http.ResponseWriter, r *http.Request) (string, *Board,
 		return "", nil, err
 	}
 
-	entry, err := s.kv.Get(r.Context(), sessionID)
-	if err != nil {
-		if err != jetstream.ErrKeyNotFound {
-			return "", nil, fmt.Errorf("reading board: %w", err)
-		}
-		board := NewBoard()
-		if err := s.Save(r.Context(), sessionID, board); err != nil {
-			return "", nil, err
-		}
-		return sessionID, board, nil
+	board, err := s.load(r.Context(), sessionID)
+	if err == jetstream.ErrKeyNotFound {
+		board = NewBoard()
+		err = s.Save(r.Context(), sessionID, board)
 	}
-
-	board := &Board{}
-	if err := json.Unmarshal(entry.Value(), board); err != nil {
-		return "", nil, fmt.Errorf("decoding board: %w", err)
+	if err != nil {
+		return "", nil, err
 	}
 	return sessionID, board, nil
 }
 
-// Save writes the board back, which is what wakes up every watcher on this
-// session -- including the caller's own SSE stream. Handlers therefore never
-// render a response themselves; they mutate and save.
+func (s *Service) load(ctx context.Context, sessionID string) (*Board, error) {
+	entry, err := s.kv.Get(ctx, sessionID)
+	if err == jetstream.ErrKeyNotFound {
+		return nil, err
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading board: %w", err)
+	}
+
+	board := &Board{}
+	if err := json.Unmarshal(entry.Value(), board); err != nil {
+		return nil, fmt.Errorf("decoding board: %w", err)
+	}
+	return board, nil
+}
+
+// Render is the frames.RenderFunc for "todos/<session id>". It runs on the
+// renderer's tick, never in a request.
+func (s *Service) Render(ctx context.Context, key string) ([]byte, error) {
+	board, err := s.load(ctx, strings.TrimPrefix(key, viewPrefix))
+	if err == jetstream.ErrKeyNotFound {
+		board = NewBoard() // expired while someone was watching; show a fresh one
+	} else if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := TodosView(NewView(board)).Render(ctx, &buf); err != nil {
+		return nil, fmt.Errorf("rendering todos view: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// Save writes the board back. The bucket watcher started by MarkDirtyOnWrite
+// sees the write and marks the session's view dirty, and the next tick pushes
+// it to every stream on this session -- including the caller's own. Handlers
+// therefore never render a response themselves; they mutate and save.
 func (s *Service) Save(ctx context.Context, sessionID string, board *Board) error {
 	b, err := json.Marshal(board)
 	if err != nil {
@@ -88,13 +121,39 @@ func (s *Service) Save(ctx context.Context, sessionID string, board *Board) erro
 	return nil
 }
 
-// Watch streams updates for one session. The caller must Stop the watcher.
-func (s *Service) Watch(ctx context.Context, sessionID string) (jetstream.KeyWatcher, error) {
-	w, err := s.kv.Watch(ctx, sessionID)
+// MarkDirtyOnWrite watches the whole bucket and marks the view of every
+// written session dirty. One watcher for the bucket, not one per stream: the
+// renderer coalesces the marks, so a burst of writes is still one render.
+func (s *Service) MarkDirtyOnWrite(ctx context.Context, renderer *frames.Renderer, logger *slog.Logger) error {
+	watcher, err := s.kv.WatchAll(ctx, jetstream.UpdatesOnly(), jetstream.IgnoreDeletes())
 	if err != nil {
-		return nil, fmt.Errorf("watching board: %w", err)
+		return fmt.Errorf("watching todos bucket: %w", err)
 	}
-	return w, nil
+
+	go func() {
+		defer func() {
+			if err := watcher.Stop(); err != nil {
+				logger.Debug("todos: stopping bucket watcher", "error", err)
+			}
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case entry, open := <-watcher.Updates():
+				if !open {
+					if ctx.Err() == nil {
+						logger.Error("todos: bucket watcher closed; live updates stopped")
+					}
+					return
+				}
+				if entry != nil {
+					renderer.MarkDirty(viewKey(entry.Key()))
+				}
+			}
+		}
+	}()
+	return nil
 }
 
 func (s *Service) sessionID(w http.ResponseWriter, r *http.Request) (string, error) {

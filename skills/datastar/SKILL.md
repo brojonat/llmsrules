@@ -6,7 +6,9 @@ description:
   requests that render nothing. Use when working with `data-*` attributes,
   `datastar-patch-elements` / `datastar-patch-signals` SSE events, signals,
   `@get`/`@post` actions, or the `datastar-py` / `datastar-go` SDKs. Also use
-  when a task calls for live-updating or multiplayer UI without a SPA.
+  when a task calls for live-updating or multiplayer UI without a SPA, or for
+  immediate-mode / tick-based server rendering (fat morph, frames, render
+  loops, streaming compression).
 ---
 
 # Datastar
@@ -71,6 +73,9 @@ to a content type other than `text/event-stream`.
 
 **7. Compress the stream.** Fat morph plus repetitive HTML compresses
 extraordinarily well — Brotli ratios around 200:1 on SSE streams are normal.
+The compressor keeps one context per connection, so each frame is compressed
+against the frames before it and only the delta ships. That is what makes
+resending the whole view every time affordable.
 
 **8. Backend templating.** The backend generates the HTML, so use its
 templating language to keep things DRY. The same template renders the first
@@ -109,13 +114,290 @@ browser                                  server
 
 Two rules follow, and they are the ones people break:
 
-- **The read stream never returns.** It renders, blocks, renders again.
+- **The read stream never returns.** It sends, blocks, sends again.
 - **Write handlers render nothing.** They mutate and answer `204`. The result
   reaches the screen on the stream, not in the write's response.
 
 Every other browser watching the same state gets the same patch. Nothing in the
 write handler knows how many clients exist — that is why it is multiplayer for
 free.
+
+The simplest server side for this loop wakes every stream on every write, and
+each stream renders for itself. The minimal templates do that, and it is the
+right first version. It costs viewers × writes renders, though, and the fix is
+the next section: render on a tick, once per view, and let streams copy bytes.
+
+---
+
+# Immediate-mode rendering
+
+Think `view = f(state)`, run on the server. A **frame** is the full HTML of a
+view, up to `<html>` if you like. On every **tick** the server computes the
+frames that may have changed, and each stream sends the latest frame for its
+view. Morph keeps the DOM churn small and per-connection compression keeps the
+wire small: an unchanged 50KB frame is a few bytes on the wire, and a 31KB
+dashboard redraw where a few numbers moved measured 480 bytes. There is no
+diffing, no per-field patching, and no client state.
+
+This is the design to reach for once more than a handful of people share a
+view, or once writes arrive faster than a person types.
+
+## Ticks bound the work
+
+Rendering on every write is accidentally quadratic. If 1,000 viewers each make
+one write per second and every write re-renders for every viewer, that is
+1,000,000 renders per second. On a 1-second tick it is 1,000, however many
+writes arrive.
+
+- **Renders per second ≤ distinct views × tick rate.** Never viewers × writes.
+- **Tick length is a product decision.** 100ms (10 fps) feels live for
+  multiplayer and interactive views; 250ms–1s is plenty for dashboards. Start
+  slow and tighten only if it feels laggy.
+
+## Backpressure
+
+Backpressure means the slow part of a system pushes back on the fast part,
+instead of the work in between piling up in a queue that grows until something
+falls over. A tick-based renderer has three places work could pile up, and
+each one is bounded by design:
+
+| If…                                   | then…                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| writes arrive faster than renders     | writes only mark views dirty, in a set; N writes in one tick are one render |
+| a tick takes longer than its budget   | the missed ticks are dropped (Go's `time.Ticker` does this for you); frame rate falls, latency and memory do not grow |
+| a client reads slower than frames arrive | its one frame slot is overwritten; when its socket frees up it sends the newest frame |
+
+The renderer never waits on a client, and a client never waits on another
+client.
+
+**This only works because every frame is the whole view.** A frame is state,
+not a delta, so dropping any frame loses nothing the next one does not carry.
+An event-driven design (push each change to each subscriber) has no safe way
+to shed load: a slow consumer either blocks the producer (one phone on bad wifi
+stalls everyone), buffers without bound (memory grows, stale views replay), or
+drops events, which corrupts any client applying deltas. Immediate mode turns
+lossy delivery into correct delivery.
+
+Two things follow:
+
+- **Never queue frames per connection.** One slot, latest wins.
+- **Overruns are a signal, not a failure.** A sustained overrun means the
+  frame rate has quietly dropped. Log it (below) so somebody notices.
+
+Writes need their own bound only once they go through a queue (rung 4 of the
+escalation ladder): make it bounded, and answer `503` when it is full rather
+than accepting work the tick cannot drain.
+
+## Choose the render key
+
+What a frame depends on decides the key, and the renderer renders each dirty
+key once per tick no matter how many streams watch it.
+
+- **Shared view: `view = f(URL)`.** Everyone on `/markets/X` sees the same
+  thing, so the key is the path. Cost scales with the number of pages, not with
+  viewers, and two tabs on one page send identical bytes. Most dashboards,
+  boards, and feeds are this.
+- **Personal view: `view = f(session, URL)`.** Per-user boards, selections,
+  filters. Key by session (`todos/<session id>`), so a user's tabs still share
+  a render. If frames differ per tab, key per connection.
+- **Lots of personal views over shared data.** The frames in one tick overlap
+  heavily, so get the sharing back with a fragment cache keyed by component and
+  arguments (content-addressed: same inputs, same bytes). Use frequency-based
+  admission (TinyLFU, e.g. Go's `ristretto`) so one-off fragments never evict
+  the hot ones. Reach for this only when the overrun log asks for it.
+
+## Size for the worst case, then optimize
+
+Assume every view changes every tick and make sure that fits the budget. Only
+then add dirty tracking: writes record which views they touched, and the
+renderer redraws only those. That is a sound optimization *because* the tick
+still bounds the worst case. One market dashboard dropped from 8.6% of a core
+redrawing everything to 0.7% redrawing what changed, but the 8.6% is the number
+to size against. When you cannot tell which views a write touches, mark
+everything dirty; the tick bounds it.
+
+**Never let a cache's freshness depend on who is watching.** Keeping a shared
+page cache and rendering only pages with a viewer refcount above zero goes
+wrong: the next visitor of an abandoned page gets stale HTML, and any URL can
+allocate a cache entry (a memory leak anyone can address by typing
+`/markets/garbage`). Two designs avoid it:
+
+- **Render everything by change.** Pre-render every real view at startup,
+  re-render on change, 404 unknown keys in the page handler. Good for a small,
+  known set of pages.
+- **Render only what is subscribed, and let frames live with subscribers.**
+  Subscribing marks the key dirty, so a new viewer always gets a fresh render;
+  a key with no subscribers is skipped and holds no frame; unknown keys fail to
+  subscribe. Good when keys are open-ended (sessions). This is what the Go
+  template does.
+
+## The shape in Go
+
+`project-templates/go-real-time-service/.../internal/frames` is the reference
+implementation (about 350 lines, plus tests). Three parts with one job each:
+
+- **Writes** mutate state, call `renderer.MarkDirty(key)` (or let a store
+  watcher do it), and return `204`.
+- **The renderer** is one goroutine on a `time.Ticker`. Each tick it renders
+  every dirty key that has a subscriber, once, and drops the bytes into each
+  subscriber's slot. It knows nothing about HTTP.
+- **Streams** subscribe to a key and send whatever is in their slot. They
+  render nothing.
+
+```go
+// Wiring, once per app. The caller owns the goroutine.
+renderer := frames.New(100*time.Millisecond, logger, registry)
+renderer.Handle("todos/", svc.Render)                          // func(ctx, key) ([]byte, error)
+renderer.Handle("monitor", renderMonitor, frames.Every(500*time.Millisecond)) // sampled, not written
+eg.Go(func() error { return renderer.Run(ctx) })
+```
+
+```go
+// The stream handler, all of it.
+sub, err := renderer.Subscribe("todos/" + sessionID)
+if err != nil { ... }
+defer sub.Close()
+
+sse := datastar.NewSSE(w, r, datastar.WithCompression())
+err = sub.Stream(r.Context(), func(html []byte) error {
+    return sse.PatchElements(string(html))
+})
+```
+
+The core of it is a one-slot mailbox per subscriber:
+
+```go
+// set runs on the renderer goroutine. It never blocks.
+func (s *Sub) set(html []byte) {
+    s.mu.Lock()
+    s.html, s.version = html, s.version+1
+    s.mu.Unlock()
+    select {
+    case s.wake <- struct{}{}: // cap 1
+    default: // a wake-up is already pending; the stream will read the newest frame
+    }
+}
+
+// Stream runs on the request goroutine.
+func (s *Sub) Stream(ctx context.Context, send func([]byte) error) error {
+    var sent uint64
+    for {
+        if html, version := s.Latest(); html != nil && version != sent {
+            if err := send(html); err != nil {
+                return err
+            }
+            sent = version
+        }
+        select {
+        case <-ctx.Done():
+            return nil
+        case <-s.wake:
+        }
+    }
+}
+```
+
+Once a slow client's socket buffer fills, `send` blocks while the renderer
+keeps overwriting the slot. When `send` returns, the loop reads the newest
+frame and skips the rest. The version check skips a frame already sent:
+compression would shrink a duplicate to almost nothing anyway, but skipping it
+also spares the browser a no-op morph of the whole view.
+
+## The shape in Python
+
+Same three parts. Rendering runs on the event loop, so render time is time no
+stream is being served. Rendering once per view, not once per connection, is
+what keeps Python viable here.
+
+```python
+class Pages:
+    """Latest frame per view; `_next` is set and replaced on every publish."""
+
+    def __init__(self) -> None:
+        self._frames: dict[str, tuple[int, str]] = {}
+        self._next = asyncio.Event()
+
+    def current(self, key: str) -> tuple[int, str | None, asyncio.Event]:
+        version, html = self._frames.get(key, (0, None))
+        return version, html, self._next
+
+    def publish(self, rendered: dict[str, str]) -> None:
+        for key, html in rendered.items():
+            version, _ = self._frames.get(key, (0, None))
+            self._frames[key] = (version + 1, html)
+        self._next.set()
+        self._next = asyncio.Event()
+
+
+async def run_renderer(store: Store, pages: Pages, tick: float = 0.1) -> None:
+    loop = asyncio.get_running_loop()
+    next_tick = loop.time()
+    while True:
+        next_tick += tick
+        if dirty := store.take_dirty():
+            pages.publish({key: render_view(store, key) for key in dirty})
+        delay = next_tick - loop.time()
+        if delay < 0:
+            log.warning("tick overrun by %.0fms", -delay * 1000)
+            next_tick = loop.time()  # drop missed ticks, do not burst to catch up
+        await asyncio.sleep(max(delay, 0))  # always yield, even on overrun
+
+
+@datastar_response
+async def stream(request: Request):
+    pages: Pages = request.app.state.pages
+    key = request.path_params["page"]
+    sent = 0
+    while True:
+        version, html, next_frame = pages.current(key)
+        if html is not None and version != sent:
+            yield SSE.patch_elements(html)
+            sent = version
+        await next_frame.wait()
+```
+
+Start `run_renderer` from the Starlette lifespan and cancel it on shutdown.
+Once a slow client's socket buffer fills, uvicorn stops pulling its generator,
+so it reads `current` late and skips frames, as in Go.
+
+## Measure with overrun logging
+
+A tick loop has a built-in benchmark: the tick budget. Log every overrun, and
+under sustained overrun log a window summary (count, p50, p95, p99, max of tick
+durations over ~20s) instead of one line per tick. Then load testing is: open
+connections, watch the log.
+
+## Escalation ladder
+
+Take these in order, and only when the overrun log says the current rung is
+not enough. Each one keeps the tick, so backpressure and overrun tracking stay.
+
+1. **Dirty tracking** (above).
+2. **Render workers.** Split a tick's renders across N workers with a
+   `sync.WaitGroup` as the per-tick barrier. Each worker owns its buffer, and,
+   with SQLite, its own read connection with **one read transaction per
+   batch**. Without it every query is its own implicit transaction and takes
+   the WAL lock separately: thousands of connections × several queries × 10
+   ticks a second adds up to millions of lock acquisitions. Per-worker buffers
+   also bound memory: one 64KB buffer per worker instead of per connection
+   (10,000 connections × 64KB = 640MB).
+3. **Shared work queue, not pinned assignment.** Put every connection on a
+   shared queue each tick and let workers pull until it is empty. Round-robin
+   assignment at connect time drifts as users leave, so one worker gets the
+   cheap pages and the rest get the expensive ones. On an extreme skew test the
+   shared queue cut p50 tick time by about 43%; with 1,000+ users expect a few
+   percent on average and a better tail.
+4. **Single writer.** Write handlers enqueue commands and return `204`; the
+   tick drains the queue and applies the whole batch in one transaction, then
+   renders. One writer with batched transactions goes a long way on SQLite.
+5. **Pipeline writes and renders.** Lockstep (write, then render) costs
+   `max(tick, write + render)` per tick; overlapping them costs
+   `max(tick, write, render)`. With 90ms writes and 100ms renders on a 100ms
+   tick, that is 190ms against 100ms. Renders must read a consistent snapshot
+   while the next batch is being written: a SQLite read transaction, or an
+   immutable state value swapped in with `atomic.Pointer`. Both phases still
+   meet at the tick barrier. In one benchmark slow writes pushed lockstep p95
+   tick time to ~1s while the pipeline held at 100ms.
 
 ---
 
@@ -394,6 +676,13 @@ from datastar_py import attribute_generator as data
 data.on("click", "@post('/add')").debounce(500)   # data-on:click__debounce.500ms__case.kebab="..."
 ```
 
+`datastar-py` does not compress. Starlette's `GZipMiddleware` skips
+`text/event-stream` by default; pass an `exclude_content_types` tuple without it
+and the middleware sync-flushes after every event, so the stream keeps
+working. gzip only dedupes frames under ~32KB, though (see Gotchas). For bigger
+live regions, compress with zstd (`compression.zstd` is in the stdlib from
+Python 3.14) or Brotli in a small ASGI middleware, flushing after every event.
+
 FastAPI variant of signal reading:
 
 ```python
@@ -502,6 +791,11 @@ execution, redirects, and correct flushing for free.
 The read handler needs to block on "something changed". Coalescing is correct —
 a watcher re-reads current state when it wakes, so a dropped duplicate wake is
 never a lost update.
+
+This is the minimal version, where each stream renders for itself on every
+wake. It is fine while viewers × writes per second stays small. Past that, move
+rendering into a tick loop (see Immediate-mode rendering) and keep the same
+wake-up idea for streams waiting on new frames.
 
 ```python
 class Store:
@@ -642,6 +936,23 @@ the pattern has been left behind. Mutate, return `204`, let the stream paint.
 interactions and for carrying input up. Anything the backend also knows will
 drift.
 
+**Rendering per stream per write is quadratic.** It works in the demo and
+falls over with a crowd. Render on a tick, once per distinct view.
+
+**Do not queue frames per connection.** Keep only the latest frame; a slow
+client should skip frames, not buffer them.
+
+**Do not tie a shared cache's freshness to viewer counts.** It serves stale
+pages to the next visitor and lets arbitrary URLs allocate cache entries.
+Render everything by change, or render only subscribed keys and have
+subscribing force a fresh render.
+
+**gzip cannot see across frames bigger than 32KB.** Deflate's window is 32KB,
+so it only finds the previous frame if the frame fits in the window. Measured
+with `zlib` sync-flushing each frame: a 15KB frame compressed to 213 bytes per
+tick, a 62KB frame to 11.6KB per tick. zstd stayed at 473 bytes for the 62KB
+frame. Use Brotli or zstd for big frames, or keep gzip'd live regions small.
+
 ---
 
 # Testing
@@ -673,12 +984,26 @@ a.click("button[type=submit]")
 b.wait_for_selector("li:has-text('hello')")     # b never talked to a
 ```
 
+## Load testing a tick loop
+
+Keep it simple: run the server, open a few hundred streams with `curl -N` in a
+loop (plus some writes, if the view has them), and read the overrun log and
+`/metrics`. p50/p95/p99 of tick time under load is the benchmark. No harness,
+no separate load-generation box.
+
+Running the load on the same machine is fine for this. Know its one
+distortion: the curls compete for CPU, and because slow clients make the server
+skip frames, a load generator that falls behind quietly lowers the load. If the
+numbers look too good, that is the first thing to suspect.
+
 ---
 
 # Deployment
 
 - **Compress the stream.** Brotli on `text/event-stream` gets ratios around
-  200:1 on repetitive fat-morph HTML. This is the single biggest win.
+  200:1 on repetitive fat-morph HTML. This is the single biggest win. Each
+  connection holds its own compression context, so measure memory per open
+  stream with compression on.
 - **No idle or read timeouts** anywhere on the path — server, ingress, LB.
 - **Disable proxy buffering** (`X-Accel-Buffering: no`, or the equivalent).
 - **Budget one open connection per browser tab.** A long-lived request per
@@ -700,16 +1025,22 @@ b.wait_for_selector("li:has-text('hello')")     # b never talked to a
 
 # Starting points
 
-Two cookiecutter templates in this repo implement exactly the shape above, in
-one file each:
+Two cookiecutter templates in this repo implement the CQRS loop in one file
+each:
 
 - `project-templates/go-datastar-minimal` — Go, `datastar-go` + `html/template`,
   `go run .`
 - `project-templates/python-datastar-minimal` — Python, PEP 723 deps,
   `datastar-py` + Starlette + Jinja2, `./main.py`
 
-`project-templates/go-real-time-service` is the same architecture with templ,
-an embedded NATS broker for per-session state, metrics, and k8s manifests.
+Both wake every stream on every write and render inside the stream: the right
+first version, and the one to outgrow.
+
+`project-templates/go-real-time-service` is the **tick-based reference**:
+`internal/frames` renders every live view on one tick loop, streams send the
+newest frame, and overruns are logged and exported to Prometheus. It shows a
+per-session view (todos, fed by a NATS KV bucket watcher) and a shared sampled
+view (monitor, `frames.Every`), with templ, metrics, and k8s manifests.
 
 # References
 
@@ -720,3 +1051,11 @@ an embedded NATS broker for per-session state, metrics, and k8s manifests.
 - SSE events: <https://data-star.dev/reference/sse_events>
 - Python SDK: <https://github.com/starfederation/datastar-python>
 - Go SDK: <https://github.com/starfederation/datastar-go>
+- Shared-view frame loop, measured in production (Go):
+  <https://brojonat.com/posts/datastar-kalshi/>
+- Ticks, barriers, fragment caching:
+  <https://andersmurphy.com/2026/09/29/faster-streaming-html-with-batches-and-aggregates.html>
+- Overrun logging, load testing, render queues:
+  <https://andersmurphy.com/2026/10/05/discrete-time-based-systems-are-simple-to-benchmark.html>
+- Lockstep to pipeline:
+  <https://andersmurphy.com/2026/10/12/lockstep-to-pipeline-in-one-line.html>

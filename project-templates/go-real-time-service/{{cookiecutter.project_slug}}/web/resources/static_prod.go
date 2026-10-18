@@ -12,8 +12,9 @@ import (
 
 const IsDev = false
 
-// static must contain index.css (from `make css`) and datastar/datastar.js
-// (from `make assets`) at compile time. `make build` checks for both.
+// static must contain index.css and datastar/datastar.js at compile time.
+// `mise run build` produces both (via the css and vendor tasks) before it
+// compiles.
 //
 // The all: prefix keeps dotfiles in: without it a freshly generated tree
 // holding only .gitkeep would fail to compile with "no matching files found".

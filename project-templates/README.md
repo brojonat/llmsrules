@@ -108,8 +108,9 @@ that never returns; `POST /add` mutates and answers `204` and renders nothing.
 That CQRS split is what makes it multiplayer without any code that knows about
 other clients.
 
-Reach for `go-real-time-service` instead when you want templ, per-session
-state, metrics, and a Kubernetes deployment.
+Reach for `go-real-time-service` instead when you want tick-based rendering
+that holds up under load, templ, per-session state, metrics, and a Kubernetes
+deployment.
 
 [tao]: https://data-star.dev/guide/the_tao_of_datastar
 
@@ -273,7 +274,11 @@ Go service for real-time hypermedia apps, in the style of
 [northstar](https://github.com/zangster300/northstar):
 
 - [Datastar](https://data-star.dev) over SSE — the server pushes HTML
-  fragments and signal patches down one long-lived GET
+  frames and signal patches down one long-lived GET
+- Tick-based rendering (`internal/frames`): writes mark views dirty, one loop
+  renders each dirty view once per tick, streams send the newest frame. Slow
+  clients and overloaded ticks drop frames instead of queueing work; overruns
+  are logged and exported to Prometheus
 - [templ](https://templ.guide) for typed HTML, with computation kept in Go
   view structs so templates stay declarative
 - Embedded NATS JetStream as the state layer, memory-backed and stateless
@@ -285,17 +290,17 @@ Go service for real-time hypermedia apps, in the style of
 ```bash
 cookiecutter path/to/project-templates/go-real-time-service
 cd my-service
-cp .env.example .env.server
-make setup      # deps, vendored client assets, codegen (needs network)
-make start-dev  # tmux: server + stylesheet watcher, tee'd to logs/
+cp .env.example .env
+mise run setup  # deps, vendored client assets, codegen (needs network)
+mise run dev    # server + stylesheet watcher, tee'd to logs/
 ```
 
-**Codegen is wired into the Makefile.** `**/*_templ.go` and `static/index.css`
+**Codegen is wired into `mise.toml`.** `**/*_templ.go` and `static/index.css`
 are generated from `.templ` and the Tailwind entrypoint, and are gitignored, so
 a bare `go build` fails on a fresh clone rather than compiling a stale
 template. `build`, `test`, and `lint` all depend on `generate`, and air
 regenerates on every rebuild, so editing a `.templ` file is enough. CI needs
-`make setup` before it compiles; the Dockerfile runs `make generate css` in its
+`mise run setup` before it compiles; the Dockerfile runs the same codegen in its
 builder stage.
 
 Ships three demo features, one per real-time pattern — a KV-watch todo list
@@ -620,11 +625,12 @@ project-templates/
 ├── go-real-time-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
-│       ├── .gitignore              # generated *_templ.go / index.css are committed
+│       ├── .gitignore              # generated *_templ.go / index.css are ignored
 │       ├── AGENTS.md
 │       ├── CHANGELOG.md
 │       ├── README.md
-│       ├── Makefile
+│       ├── mise.toml               # tasks; pins Go + golangci-lint
+│       ├── scripts/                # vendor.sh (client assets), deploy.sh
 │       ├── Dockerfile              # runs templ + tailwind in the builder
 │       ├── .air.toml               # build cmd re-runs templ generate
 │       ├── .env.example

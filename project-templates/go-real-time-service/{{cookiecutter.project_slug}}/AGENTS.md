@@ -7,44 +7,47 @@ detail and the list of things that have bitten people.
 
 ## Quick Reference
 
-| Task              | Command          |
-| ----------------- | ---------------- |
-| First-time setup  | `make setup`     |
-| Dev session       | `make start-dev` |
-| Server only       | `make run-dev`   |
-| Tests             | `make test`      |
-| Lint              | `make lint`      |
-| Build             | `make build`     |
-| Regenerate code   | `make generate`  |
-| Deploy            | `make deploy`    |
+| Task              | Command               |
+| ----------------- | --------------------- |
+| First-time setup  | `mise run setup`      |
+| Dev (server+css)  | `mise run dev`        |
+| Dev session, tmux | `mise run start-dev`  |
+| Server only       | `mise run dev:server` |
+| Tests             | `mise run test`       |
+| Lint              | `mise run lint`       |
+| Build             | `mise run build`      |
+| Regenerate code   | `mise run generate`   |
+| Deploy            | `mise run deploy`     |
+
+`mise tasks` lists everything.
 
 ## Never run a bare `go build` or `go test`
 
 `**/*_templ.go` and `web/resources/static/index.css` are generated and
-gitignored. A fresh clone does not compile until `make generate` has run.
+gitignored. A fresh clone does not compile until `mise run generate` has run.
 
-Use `make build` / `make test` / `make lint` / `make run-dev`; each depends on
-`generate`. If you see `undefined: Page` or `undefined: TodosView`, you skipped
-codegen — run `make generate`.
+Use `mise run build` / `test` / `lint` / `dev`; each depends on `generate`. If
+you see `undefined: Page` or `undefined: TodosView`, you skipped codegen — run
+`mise run generate`.
 
 That failure is deliberate. Committing the generated code would trade a missing
 symbol for a stale one: a forgotten regenerate would leave `go build` compiling
 the previous version of a template you just edited.
 
-`run-dev` runs air, whose build command is
+`dev:server` runs air, whose build command is
 `go tool templ generate && go build`, so editing a `.templ` file is enough —
 there is no separate templ watcher to remember, and `tmp/main` is never stale.
 
 ## Logs
 
-Dev targets tee to `logs/`:
+Dev tasks tee to `logs/`:
 
 ```bash
 tail -f logs/server.log
 jq 'select(.level == "ERROR")' logs/server.log
 ```
 
-Set `LOG_LEVEL=debug` in `.env.server` to see per-request lines.
+Set `LOG_LEVEL=debug` in `.env` to see per-request lines.
 
 ## Conventions
 
@@ -82,12 +85,23 @@ depth when adding routes.
 **No `WriteTimeout` on the server.** It would sever SSE streams mid-flight.
 `ReadHeaderTimeout` is set instead; leave it that way.
 
-**Mutation handlers return no body.** They mutate and save; the KV watcher on
-the open stream re-renders. If you find yourself rendering a fragment in a
+**Mutation handlers return no body.** They mutate and save; the save marks the
+view dirty and the next render tick pushes it down the open stream. If you find yourself rendering a fragment in a
 mutation handler, you have left the pattern.
 
-**A nil KV watcher entry is not an error.** It marks the end of the initial
-replay. Skip it and keep looping.
+**Stream handlers never render.** They `Subscribe` to a view key and call
+`sub.Stream`. Rendering belongs in a `frames.RenderFunc`, which runs on the
+tick. Rendering inside a stream handler brings back one render per tab per
+write, which is exactly what the renderer exists to prevent.
+
+**Do not queue frames.** A stream keeps one frame slot; newer frames overwrite
+it. A buffered channel of frames per connection lets one slow client grow
+memory and replay stale views.
+
+**Writes that bypass the bucket must call `MarkDirty`.** The todos bucket
+watcher marks views for anything written to NATS. State that lives elsewhere
+needs an explicit `renderer.MarkDirty(key)` after the write, or the view only
+updates when someone else touches it.
 
 **Composite literals in this repo are written one element per line.** Collapsed
 literals produce `{`+`{`, which cookiecutter parses as a Jinja expression when

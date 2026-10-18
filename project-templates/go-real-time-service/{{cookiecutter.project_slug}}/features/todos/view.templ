@@ -8,7 +8,8 @@ import (
 	"{{cookiecutter.go_mod}}/features/common/components"
 )
 
-// TodosView is the fragment pushed over SSE on every state change.
+// TodosView is the frame pushed over SSE whenever this session's board changed
+// since the last tick.
 //
 // Its outer id must stay in sync with the placeholder rendered by Page, since
 // Datastar patches elements by id.
@@ -18,8 +19,9 @@ templ TodosView(v View) {
 			<h1 class="card-title text-3xl font-bold">Todos</h1>
 			<p class="text-sm opacity-70">
 				This whole panel is driven by one long-lived GET to
-				<code>/api/todos</code>. Mutations write to NATS; a KV watcher
-				renders this fragment and pushes it back down.
+				<code>/api/todos</code>. Mutations write to NATS, which marks
+				this view dirty; the next render tick pushes the whole panel
+				back down.
 			</p>
 			<div class="flex items-center gap-2">
 				if v.HasTodos {

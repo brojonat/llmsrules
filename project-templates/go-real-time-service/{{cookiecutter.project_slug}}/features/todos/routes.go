@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/sessions"
 
 	"{{cookiecutter.go_mod}}/internal/broker"
+	"{{cookiecutter.go_mod}}/internal/frames"
 	"{{cookiecutter.go_mod}}/internal/httpx"
 )
 
@@ -23,10 +24,22 @@ func SetupRoutes(
 	logger *slog.Logger,
 	b *broker.Broker,
 	store sessions.Store,
+	renderer *frames.Renderer,
 	adapters ...httpx.Adapter,
 ) error {
 	svc, err := NewService(ctx, b, store)
 	if err != nil {
+		return err
+	}
+
+	// Each session's board is one view, keyed "todos/<session id>". Two tabs on
+	// the same session share one render per tick.
+	renderer.Handle(viewPrefix, svc.Render)
+
+	// Every write to the bucket marks that session's view dirty, whoever made
+	// it: a mutation route, another replica's tab, or a background job. The
+	// watcher stops when ctx is cancelled at shutdown.
+	if err := svc.MarkDirtyOnWrite(ctx, renderer, logger); err != nil {
 		return err
 	}
 
@@ -35,7 +48,7 @@ func SetupRoutes(
 	}
 
 	handle("GET /{$}", handlePage(svc, logger, "Todos"))
-	handle("GET /api/todos", handleStream(svc, logger))
+	handle("GET /api/todos", handleStream(svc, renderer, logger))
 
 	handle("PUT /api/todos/reset", handleMutate(svc, logger, "reset", reset))
 	handle("PUT /api/todos/cancel", handleMutate(svc, logger, "cancel", cancelEdit))

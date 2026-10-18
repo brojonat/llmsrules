@@ -1,33 +1,34 @@
 package monitor
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/starfederation/datastar-go/datastar"
 
+	"{{cookiecutter.go_mod}}/internal/frames"
 	"{{cookiecutter.go_mod}}/internal/httpx"
 )
 
-// Signals mirrors the Datastar signal names bound in page.templ.
-//
-// Fields are omitempty so a partial update (memory only, CPU only) leaves the
-// other signals untouched on the client.
-type Signals struct {
-	MemUsed    string `json:"memUsed,omitempty"`
-	MemTotal   string `json:"memTotal,omitempty"`
-	MemPercent string `json:"memPercent,omitempty"`
-	CPUUser    string `json:"cpuUser,omitempty"`
-	CPUSystem  string `json:"cpuSystem,omitempty"`
-	CPUIdle    string `json:"cpuIdle,omitempty"`
+// Stats is one sample of host stats, formatted for display.
+type Stats struct {
+	MemUsed    string
+	MemTotal   string
+	MemPercent string
+	CPUUser    string
+	CPUSystem  string
+	CPUIdle    string
 }
+
+const viewKey = "monitor"
 
 func handlePage(title string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,51 +38,58 @@ func handlePage(title string) http.Handler {
 	})
 }
 
-// handleEvents pushes host stats on a ticker for as long as the client stays
-// connected. There is no request/response pairing here at all.
-func handleEvents(logger *slog.Logger, interval time.Duration) http.Handler {
+// render is the frames.RenderFunc for the monitor view. Every viewer sees the
+// same host, so there is one key and one render per interval no matter how
+// many tabs are open -- not one sampler per connection.
+func render(ctx context.Context, _ string) ([]byte, error) {
+	stats, err := sample()
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := StatsView(stats).Render(ctx, &buf); err != nil {
+		return nil, fmt.Errorf("rendering monitor view: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// handleEvents is pure server push: subscribe to the shared view and send
+// frames for as long as the client stays connected.
+func handleEvents(renderer *frames.Renderer, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		sse := datastar.NewSSE(w, r)
+		sub, err := renderer.Subscribe(viewKey)
+		if err != nil {
+			logger.ErrorContext(r.Context(), "monitor: subscribe", "error", err)
+			httpx.WriteJSONError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer sub.Close()
 
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case <-ticker.C:
-				signals, err := sample()
-				if err != nil {
-					logger.ErrorContext(ctx, "monitor: sampling host stats", "error", err)
-					return
-				}
-				if err := sse.MarshalAndPatchSignals(signals); err != nil {
-					logger.DebugContext(ctx, "monitor: stream closed", "error", err)
-					return
-				}
-			}
+		sse := datastar.NewSSE(w, r, datastar.WithCompression())
+		err = sub.Stream(r.Context(), func(html []byte) error {
+			return sse.PatchElements(string(html))
+		})
+		if err != nil {
+			logger.DebugContext(r.Context(), "monitor: stream closed", "error", err)
 		}
 	})
 }
 
-func sample() (Signals, error) {
+func sample() (Stats, error) {
 	vm, err := mem.VirtualMemory()
 	if err != nil {
-		return Signals{}, fmt.Errorf("reading memory stats: %w", err)
+		return Stats{}, fmt.Errorf("reading memory stats: %w", err)
 	}
 
 	times, err := cpu.Times(false)
 	if err != nil {
-		return Signals{}, fmt.Errorf("reading cpu stats: %w", err)
+		return Stats{}, fmt.Errorf("reading cpu stats: %w", err)
 	}
 	if len(times) == 0 {
-		return Signals{}, fmt.Errorf("reading cpu stats: no samples returned")
+		return Stats{}, fmt.Errorf("reading cpu stats: no samples returned")
 	}
 
-	return Signals{
+	return Stats{
 		MemUsed:    humanize.Bytes(vm.Used),
 		MemTotal:   humanize.Bytes(vm.Total),
 		MemPercent: fmt.Sprintf("%.1f%%", vm.UsedPercent),

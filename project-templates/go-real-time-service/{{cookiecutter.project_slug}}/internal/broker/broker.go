@@ -22,8 +22,8 @@ import (
 
 	"github.com/delaneyj/toolbelt"
 	"github.com/delaneyj/toolbelt/embeddednats"
-	"github.com/nats-io/nats.go/jetstream"
 	natsserver "github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type Broker struct {
@@ -40,11 +40,18 @@ func Start(ctx context.Context, logger *slog.Logger, port int) (*Broker, error) 
 	if err != nil {
 		return nil, fmt.Errorf("creating nats store dir: %w", err)
 	}
+	// Remove the store dir if anything below fails. Best effort: the start
+	// error is the one worth reporting.
+	started := false
+	defer func() {
+		if !started {
+			_ = os.RemoveAll(storeDir)
+		}
+	}()
 
 	if port <= 0 || !portIsFree(port) {
 		free, err := toolbelt.FreePort()
 		if err != nil {
-			os.RemoveAll(storeDir)
 			return nil, fmt.Errorf("finding a free nats port: %w", err)
 		}
 		port = free
@@ -57,24 +64,22 @@ func Start(ctx context.Context, logger *slog.Logger, port int) (*Broker, error) 
 		StoreDir:  storeDir,
 	}))
 	if err != nil {
-		os.RemoveAll(storeDir)
 		return nil, fmt.Errorf("starting embedded nats: %w", err)
 	}
 	server.WaitForServer()
 
 	client, err := server.Client()
 	if err != nil {
-		os.RemoveAll(storeDir)
 		return nil, fmt.Errorf("connecting to embedded nats: %w", err)
 	}
 
 	js, err := jetstream.New(client)
 	if err != nil {
-		os.RemoveAll(storeDir)
 		return nil, fmt.Errorf("creating jetstream client: %w", err)
 	}
 
 	logger.Info("embedded nats started", "port", port)
+	started = true
 
 	return &Broker{server: server, js: js, storeDir: storeDir, logger: logger}, nil
 }
@@ -98,7 +103,9 @@ func (b *Broker) KV(ctx context.Context, bucket string, ttl time.Duration) (jets
 
 // Close shuts the server down and removes its temporary store directory.
 func (b *Broker) Close() {
-	b.server.Close()
+	if err := b.server.Close(); err != nil {
+		b.logger.Warn("closing embedded nats", "error", err)
+	}
 	if err := os.RemoveAll(b.storeDir); err != nil {
 		b.logger.Warn("removing nats store dir", "error", err)
 	}
