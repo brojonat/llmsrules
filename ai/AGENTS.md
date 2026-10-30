@@ -32,7 +32,7 @@ tool first:
 - **SQLite over a dedicated database server** when a single process is enough.
 - **Standard library HTTP over frameworks** — handlers as functions, middleware
   as composition.
-- **Plain HTML (with a sprinkle of HTMX or similar) over heavy frontend stacks**
+- **Plain HTML (with a sprinkle of Datastar) over heavy frontend stacks**
   when the task doesn't demand a SPA.
 - **Environment variables over elaborate config DSLs.**
 - **Standard SQL over ORM magic.**
