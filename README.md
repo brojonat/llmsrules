@@ -49,6 +49,7 @@ like to structure my projects.
 | `go-datastar-minimal`        | Real-time app, one file | Datastar over SSE, `datastar-go` SDK, no build step, `go run .`      |
 | `go-real-time-service`       | Go real-time web app    | Datastar over SSE, tick-based frame renderer, templ, embedded NATS JetStream, Tailwind/DaisyUI |
 | `go-local-app`               | Local app in a browser  | One `go install` binary: urfave/cli, embedded NATS JetStream KV, Datastar over SSE, `html/template`, diagnostics dashboard, `/metrics` |
+| `rust-service`               | Rust web service (stub) | axum on tokio, clap, tracing, `prometheus-client` `/metrics`, `/healthz`, watchexec dev loop, mise; no Docker/k8s yet |
 | `python-datastar-minimal`    | Real-time app, one file | Datastar over SSE, PEP 723 deps, no build step, `./main.py`          |
 | `python-warehouse-dashboard` | Data dashboard + assistant | Synthetic feed -> DuckDB/Parquet read models, per-session Datastar dashboard, d3 Rocket charts, LLM assistant with SQL sandbox + evals, `/admin`, mise |
 | `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
@@ -60,9 +61,10 @@ like to structure my projects.
 All templates include: a task runner, Dockerfile, K8s manifests,
 `.gitignore`, `AGENTS.md`, `CHANGELOG.md` — except the two
 `*-datastar-minimal` templates, which are deliberately a single source file
-plus a README. The task runner is `mise.toml` in `python-warehouse-dashboard` and
-`python-bayes-loop`, and a Makefile in the older templates; mise is the default going forward (see
-`AGENTS.md`).
+plus a README, and `rust-service`, a stub that has no Dockerfile or K8s
+manifests yet. The task runner is `mise.toml` in `python-warehouse-dashboard`,
+`python-bayes-loop` and `rust-service`, and a Makefile in the older templates;
+mise is the default going forward (see `AGENTS.md`).
 
 ```bash
 # Install cookiecutter

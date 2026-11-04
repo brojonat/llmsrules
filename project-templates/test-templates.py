@@ -88,6 +88,11 @@ TEMPLATES = {
         "output": "test-bayes-loop",
         "vars": {"project_name": "Test Bayes Loop", "author": "testuser"},
     },
+    "rust": {
+        "name": "rust-service",
+        "output": "test-rust-service",
+        "vars": {"project_name": "Test Rust Service", "author": "testuser"},
+    },
 }
 
 
@@ -814,6 +819,60 @@ def validate_bayes_loop(project_dir: Path) -> None:
     success("python-bayes-loop validation complete")
 
 
+def validate_rust(project_dir: Path) -> None:
+    """Validate rust-service template."""
+    section("Validating rust-service")
+
+    run_with_output("cargo test -q", cwd=project_dir)
+    run_with_output("cargo clippy -q --all-targets -- -D warnings", cwd=project_dir)
+    run_with_output("cargo fmt --check", cwd=project_dir)
+    success("tests, clippy and rustfmt are clean")
+
+    run_with_output("cargo build -q", cwd=project_dir)
+    binary = project_dir / "target" / "debug" / "test-rust-service"
+
+    log("Starting server briefly...")
+    server = subprocess.Popen(
+        [str(binary), "--addr", "127.0.0.1:18085", "--log-level", "info"],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(1)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18085/healthz"],
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout == "ok":
+            success("/healthz returns ok")
+        else:
+            warn("/healthz failed")
+
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18085/metrics"],
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if 'route="/healthz"' in result.stdout:
+            success("/metrics counts the /healthz request")
+        else:
+            warn("/metrics did not count the request")
+    except Exception:
+        warn("Server checks failed")
+    finally:
+        server.terminate()  # SIGTERM: exercises graceful shutdown
+        if server.wait(timeout=10) == 0:
+            success("SIGTERM shuts down cleanly")
+        else:
+            warn(f"server exited {server.returncode} on SIGTERM")
+
+    success("rust-service validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -825,6 +884,7 @@ VALIDATORS = {
     "pyminimal": validate_py_minimal,
     "warehouse": validate_warehouse,
     "bayesloop": validate_bayes_loop,
+    "rust": validate_rust,
 }
 
 
@@ -842,7 +902,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -858,7 +918,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -962,6 +1022,14 @@ def show() -> None:
     click.echo("  mise run check-gpu # want: gpu [CudaDevice(id=0)]")
     click.echo("  mise run up        # db + feed + sample + dashboard (mise run up:cpu without a GPU)")
     click.echo("  mise run test      # CPU")
+    click.echo()
+
+    click.echo(f"{BLUE}rust-service:{NC}")
+    click.echo("  mise tasks         # the front door (not make)")
+    click.echo("  mise run setup     # toolchain from rust-toolchain.toml, cargo fetch")
+    click.echo("  mise run dev       # watchexec rebuild + restart, tees logs/serve.log")
+    click.echo("  mise run test && mise run lint")
+    click.echo("  cargo run -- --help")
     click.echo()
 
     click.echo(f"{BLUE}python-ducklake-service:{NC}")

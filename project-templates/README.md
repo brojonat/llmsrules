@@ -83,6 +83,30 @@ make build && ./bin/my-service --help
 make run-dev  # Hot reload with logs to logs/server.log
 ```
 
+### rust-service
+
+**A stub, meant to grow.** The `go-service` shape in Rust, cut down to what
+every service needs; the rest is listed in the generated `TODO.md`.
+
+- [axum](https://docs.rs/axum) on tokio: handlers as async functions,
+  middleware as layers, dependencies through `State` (no globals)
+- clap CLI with env fallbacks (`SERVER_ADDR`, `LOG_LEVEL`, `LOG_FORMAT`)
+- `tracing` logs on stderr, JSON by default, pretty in dev
+- `/healthz`, `/metrics` via `prometheus-client` with an explicit `Registry`
+  (the `prometheus.NewRegistry()` pattern, not a global recorder)
+- Graceful shutdown on Ctrl-C / SIGTERM
+- `rust-toolchain.toml` pins stable plus clippy, rustfmt and rust-analyzer
+- mise front door; `dev` restarts via watchexec and tees `logs/serve.log`
+
+Not yet: Dockerfile, k8s manifests, a database, auth.
+
+```bash
+cookiecutter path/to/project-templates/rust-service
+cd my-service
+mise run setup
+mise run dev   # rebuild + restart on save, tees logs/serve.log
+```
+
 ### go-datastar-minimal
 
 The smallest thing that demonstrates [the Tao of Datastar][tao]: one file, one
@@ -565,6 +589,17 @@ project-templates/
 │       │   └── .gitkeep
 │       └── data/                     # gitignored - local data
 │           └── .gitkeep
+├── rust-service/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore
+│       ├── .env.example
+│       ├── AGENTS.md, README.md, TODO.md, CHANGELOG.md, LEARNINGS.md
+│       ├── Cargo.toml
+│       ├── mise.toml
+│       ├── rust-toolchain.toml     # stable + clippy, rustfmt, rust-analyzer
+│       └── src/
+│           └── main.rs             # CLI, state, router, middleware, tests
 ├── go-datastar-minimal/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1641,6 +1676,11 @@ uv run test-cli foo do-something
   - [x] Evals, fake LLM, load tester, /admin, /metrics, app DB with migrations
   - [x] Stateless k8s deploy, litestream, refresh schedule left to the user
   - [x] Verified: tests, lint, validator, browser round trip, Docker image
+- [x] Stub rust-service template
+  - [x] axum + tokio server, clap CLI, tracing logs, /healthz, /metrics
+  - [x] Graceful shutdown, in-process router tests, clippy/rustfmt clean
+  - [x] mise tasks (watchexec dev loop tees logs/), rust-toolchain.toml
+  - [ ] Dockerfile, k8s manifests, sqlx, JWT (tracked in the generated TODO.md)
 - [x] Add test-templates.py validation script
 
 ### Remaining

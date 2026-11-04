@@ -1,0 +1,40 @@
+# mise is the front door: `mise tasks` lists everything, `mise run <task>`.
+# Extra arguments are appended to a task's command; tasks that tee wrap the
+# command in a function so appended args land on the server, not on tee.
+# The Rust toolchain itself is pinned by rust-toolchain.toml (rustup).
+
+[tools]
+watchexec = "latest"
+
+[env]
+_.file = { path = ".env", redact = false }
+
+[tasks.setup]
+description = "Install the toolchain from rust-toolchain.toml and fetch crates"
+run = "rustup show active-toolchain && cargo fetch"
+
+[tasks.build]
+description = "Release build to target/release/{{cookiecutter.project_slug}}"
+run = "cargo build --release"
+
+[tasks.dev]
+description = "Rebuild and restart on change, tee to logs/serve.log"
+env = { LOG_LEVEL = "info", LOG_FORMAT = "pretty" }
+run = 'mkdir -p logs; f() { watchexec -r -e rs,toml -- cargo run -q -- "$@" 2>&1 | tee logs/serve.log; }; f'
+
+[tasks.serve]
+description = "Run the release build (JSON logs), tee to logs/serve.log"
+depends = ["build"]
+run = 'mkdir -p logs; f() { target/release/{{cookiecutter.project_slug}} "$@" 2>&1 | tee logs/serve.log; }; f'
+
+[tasks.test]
+description = "Run tests"
+run = 'f() { cargo test -q "$@"; }; f'
+
+[tasks.lint]
+description = "clippy (warnings are errors) + rustfmt check"
+run = ["cargo clippy -q --all-targets -- -D warnings", "cargo fmt --check"]
+
+[tasks.fmt]
+description = "rustfmt"
+run = "cargo fmt"
