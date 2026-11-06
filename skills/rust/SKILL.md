@@ -1,6 +1,6 @@
 ---
 name: rust
-description: Write Rust services, CLIs, and libraries, with a focus on async Rust (Tokio, axum) and cancellation correctness. Use when writing or reviewing Rust code, especially anything with async/await, tokio::spawn, select!, timeouts, channels, mutexes, or HTTP handlers.
+description: Write Rust services, CLIs, and libraries, with a focus on async Rust (Tokio, axum), cancellation correctness, and graceful shutdown. Use when writing or reviewing Rust code, especially anything with async/await, tokio::spawn, select!, timeouts, channels, mutexes, HTTP handlers, signal handling (Ctrl-C, SIGTERM), or child processes.
 ---
 
 # Rust

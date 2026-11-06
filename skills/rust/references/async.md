@@ -268,6 +268,145 @@ async fn state_actor(mut rx: mpsc::Receiver<Cmd>) {
 Keep the actor's own loop free of `.await`s that happen while an invariant is
 broken, for the same reason as the mutex rule.
 
+## Shutdown and Unix signals
+
+Signals are cancellation that comes from outside the process. You will get
+them: Kubernetes and `docker stop` send `SIGTERM` before killing a service, and
+CLI users hit Ctrl-C whenever something feels slow. A program that only reads
+can mostly ignore them. A program that writes data or coordinates external
+work (downloads, a database, child processes) has to decide what happens.
+
+| Signal | Sent by | Default | Catchable |
+|---|---|---|---|
+| `SIGINT` | Ctrl-C | terminate | yes |
+| `SIGTERM` | `kill`, k8s, `docker stop` | terminate | yes |
+| `SIGQUIT` | Ctrl-\ | terminate + core dump | yes |
+| `SIGTSTP` / `SIGCONT` | Ctrl-Z / `fg`, `bg` | stop / continue | yes |
+| `SIGKILL`, `SIGSTOP` | `kill -9`, `kill -STOP` | kill / stop | **no** |
+
+### Never do real work in a signal handler
+
+A signal handler can run between any two instructions of your program. If it
+fires while you hold a lock and then takes the same lock, you deadlock. The
+allocator takes locks, so a handler **can't allocate**: no `String`, no `Vec`,
+no logging. Only functions listed as async-signal-safe (`man 7 signal-safety`)
+are allowed, such as `write(2)` to a file descriptor. ("Async" there is
+unrelated to async Rust. It's the opposite: async Rust can only be interrupted
+at `.await`, while a signal handler can interrupt you anywhere.)
+
+The standard workaround is the **self-pipe trick**: the handler writes one byte
+to a pipe the process owns, and normal code reads the other end. Don't write
+it by hand. `tokio::signal` (and `signal-hook` for sync code) does this for
+you and hands you an ordinary async stream.
+
+### Turn signals into messages
+
+On the reading side, polling a flag in every loop doesn't scale, and stopping
+everything with a mutex gets messy. Use **message passing**: the main task
+receives signals and broadcasts a message, and each worker decides how to wind
+down. This is cooperative cancellation, like Go's `ctx.Done()`. It sidesteps
+the drop-cancellation problems above, because workers get to flush data and
+record state instead of vanishing mid-`.await`.
+
+```rust
+use tokio::{signal::unix::{signal, SignalKind}, sync::broadcast, task::JoinSet};
+
+#[derive(Clone, Copy, Debug)]
+enum Shutdown { Interrupt, Terminate }
+
+async fn run(urls: Vec<String>) -> anyhow::Result<()> {
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let (tx, _) = broadcast::channel(8);
+
+    let mut workers = JoinSet::new();
+    for url in urls {
+        workers.spawn(download(url, tx.subscribe()));
+    }
+
+    let mut interrupts = 0;
+    loop {
+        tokio::select! {
+            res = workers.join_next() => match res {
+                Some(Ok(Ok(()))) => {}
+                Some(Ok(Err(e))) => tracing::error!(error = %e, "download failed"),
+                Some(Err(e)) => tracing::error!(error = %e, "download task panicked"),
+                None => return Ok(()), // every worker finished
+            },
+            _ = sigint.recv() => {
+                interrupts += 1;
+                if interrupts > 1 {
+                    std::process::exit(130); // second Ctrl-C: cleanup is stuck, bail
+                }
+                let _ = tx.send(Shutdown::Interrupt);
+            }
+            _ = sigterm.recv() => {
+                let _ = tx.send(Shutdown::Terminate);
+            }
+        }
+    }
+}
+
+async fn download(url: String, mut shutdown: broadcast::Receiver<Shutdown>) -> anyhow::Result<()> {
+    tokio::select! {
+        res = fetch_to_disk(&url) => res,
+        _ = shutdown.recv() => {
+            // The worker decides how to wind down. fetch_to_disk is dropped here,
+            // so it must be cancel-safe (see above).
+            flush_and_mark_interrupted(&url).await
+        }
+    }
+}
+```
+
+Notes:
+
+- **Don't `?` out of the `join_next` loop.** Dropping a `JoinSet` aborts every
+  task still in it. That's the `try_join` bug again, so log failures and keep
+  draining.
+- **Handle `SIGTERM` as well as `SIGINT`.** Services mostly get `SIGTERM`.
+  `tokio::signal::ctrl_c()` alone misses it.
+- **Double Ctrl-C:** the first one starts a clean shutdown; the second exits
+  immediately, on the assumption that cleanup is stuck. Exit code 130 is
+  128 + `SIGINT`, the shell convention.
+- If workers only need "stop now" and not *which* signal arrived,
+  `tokio_util::sync::CancellationToken` is a lighter alternative to the
+  broadcast channel.
+
+### Child processes and process groups
+
+Ctrl-C doesn't signal one process. It signals the terminal's foreground
+**process group**, which children inherit. That's why one Ctrl-C stops
+`cargo` and every `rustc` under it. You can signal a group yourself with a
+negative PID: `kill -INT -<pgid>`.
+
+If you spawn children that spawn their own children, put each in its own group
+so you can signal the whole subtree at once:
+
+```rust
+let child = tokio::process::Command::new("cargo")
+    .arg("build")
+    .process_group(0) // new group, id = child's pid
+    .spawn()?;
+
+fn forward(child: &tokio::process::Child, sig: nix::sys::signal::Signal) -> nix::Result<()> {
+    let pgid = nix::unistd::Pid::from_raw(child.id().expect("running") as i32);
+    nix::sys::signal::killpg(pgid, sig)
+}
+```
+
+The catch: **process groups don't nest.** Once a child is in its own group,
+the terminal's Ctrl-C no longer reaches it. **You** now have to forward
+signals (`SIGINT`, `SIGTERM`, `SIGQUIT`, and job control `SIGTSTP`/`SIGCONT`).
+The broadcast channel above is the natural place: each worker forwards to the
+group it owns.
+
+Forwarding job control lets you do something most tools don't: on `SIGTSTP`
+pause your timeout clocks, and on `SIGCONT` resume them, so a suspended run
+doesn't time out. (Once you catch `SIGTSTP`, the default stop no longer
+happens. After forwarding it, stop yourself with `SIGSTOP`, which can't be
+caught.)
+
 ## Review checklist
 
 When writing or reviewing async code, ask at every `.await`:
@@ -280,6 +419,9 @@ When writing or reviewing async code, ask at every `.await`:
       runtime instead of in `spawn_blocking`?
 - [ ] Is every future actually awaited (clippy `let_underscore_future`)?
 - [ ] Should must-finish work be a spawned task or an actor message instead?
+- [ ] Are `SIGTERM` and `SIGINT` handled by messaging workers to wind down,
+      not by dropping them?
+- [ ] If children run in their own process groups, are signals forwarded?
 
 ## Further reading
 
@@ -288,6 +430,10 @@ When writing or reviewing async code, ask at every `.await`:
   [written version](https://sunshowers-io.pages.dev/posts/cancelling-async-rust),
   and the `sunshowers/cancelling-async-rust` repo of links. The source of the
   cancel-correctness framework above.
+- Rain, "Beyond Ctrl-C: the dark corners of Unix signal handling", RustConf
+  2023: [video](https://www.youtube.com/watch?v=zhbkp_Fzqoo). The source of
+  the signals section. The talk links a download-manager demo repo with
+  exercises.
 - `cancel-safe-futures` crate: cancel-safe alternatives to common combinators,
   including a lock-and-update mutex that poisons itself if cancelled partway.
 - Tokio docs: the "Cancel safety" section on each method, and the `select!`
