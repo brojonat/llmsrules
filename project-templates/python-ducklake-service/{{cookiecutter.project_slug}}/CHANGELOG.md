@@ -25,9 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Session management with cookie-based auth
 - PostgreSQL app database for users, sessions, tags
 - Tag CRUD and entity tagging API
-- HTMX frontend with dark/light theme
+- Datastar frontend with dark/light theme: live dashboard over one SSE
+  stream (re-rendered once per lake snapshot), debounced entity search,
+  entity pages
+- d3 charts as Datastar Rocket web components
+- `POST /api/events` to append events to the lake
 - Click CLI: serve, migrate, lake admin, app admin
 - Prometheus metrics and structured logging
-- Docker Compose for local dev (Postgres + MinIO)
+- Docker Compose for local dev (Postgres + SeaweedFS as S3)
+- mise as the front door (`mise tasks`)
 - Kubernetes manifests (Kustomize)
 - Migration system with namespace isolation

@@ -12,10 +12,10 @@ build/
 !.env.example
 
 # Development
-logs/
+/logs/
 !logs/.gitkeep
-data/
-!data/.gitkeep
+/data/
+!/data/.gitkeep
 
 # Testing
 .pytest_cache/
@@ -33,6 +33,3 @@ htmlcov/
 # OS
 .DS_Store
 
-# Static JS (downloaded via make setup-js)
-static/js/
-!static/js/.gitkeep

@@ -8,7 +8,7 @@ import pytest
 def test_health_endpoint():
     """Test that /health returns 200 with healthy status.
 
-    Note: This test requires running services (Postgres, MinIO).
+    Note: This test requires running services (Postgres, S3).
     Skip in CI without services by setting SKIP_INTEGRATION=1.
     """
     if os.environ.get("SKIP_INTEGRATION"):

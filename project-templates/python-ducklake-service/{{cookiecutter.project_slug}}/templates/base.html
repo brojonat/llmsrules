@@ -7,7 +7,15 @@
     <link rel="icon" type="image/png" href="/static/favicon.png">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="/static/js/htmx.min.js" defer></script>
+    <!-- datastar-rocket.js is the full Datastar bundle plus Rocket (web components);
+         load it instead of datastar.js, never both. Pinned versions, no build step. -->
+    <script type="importmap">
+    {"imports": {
+        "datastar": "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar-rocket.js",
+        "d3": "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm"
+    }}
+    </script>
+    <script type="module" src="/static/js/components.js"></script>
     {% block head %}{% endblock %}
     <script>
         // Theme initialization (runs immediately to prevent flash)
@@ -20,7 +28,9 @@
         })();
     </script>
 </head>
-<body>
+{#- A live page sets stream_url: its one long-lived read, opened on load. Every
+    later render arrives on it; writes go elsewhere and answer 204. #}
+<body{% if stream_url %} data-init="@get('{{ stream_url }}', {openWhenHidden: true})"{% endif %}>
     <header>
         <nav>
             <a href="/" class="logo">{% endraw %}{{cookiecutter.project_name}}{% raw %}</a>

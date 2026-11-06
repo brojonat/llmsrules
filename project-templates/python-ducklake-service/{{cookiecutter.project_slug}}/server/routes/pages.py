@@ -1,5 +1,15 @@
-"""HTML page routes (HTMX)."""
+"""HTML page routes (Datastar).
 
+Pages render whole documents. A live page (the dashboard) also opens one
+long-lived SSE stream that receives every later render of its region; see
+server/live.py. Writes never render: they go to /api and the next frame shows
+the result.
+"""
+
+import uuid
+
+from datastar_py import ServerSentEventGenerator as SSE
+from datastar_py.fastapi import DatastarResponse, ReadSignals
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -15,9 +25,12 @@ from server.deps import (
     SettingsDep,
 )
 from server.email import send_magic_link_email
+from server.live import Frames, render_dashboard
 
 pages_router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="templates")
+
+ENTITY_LIMIT = 100
 
 
 @pages_router.get("/", response_class=HTMLResponse)
@@ -41,40 +54,50 @@ async def dashboard(
     lake: LakeDep,
     session: SessionDep,
 ):
-    """Dashboard page - overview of entities and events."""
-    # Get entity count
-    try:
-        entity_count = lake.con.raw_sql(
-            "SELECT COUNT(DISTINCT entity_id) FROM lake.events"
-        ).fetchone()[0]
-    except Exception:
-        entity_count = 0
-
-    # Get event count
-    try:
-        event_count = lake.con.raw_sql("SELECT COUNT(*) FROM lake.events").fetchone()[0]
-    except Exception:
-        event_count = 0
-
-    # Get recent event types
-    try:
-        event_types = lake.con.raw_sql(
-            "SELECT DISTINCT event_type FROM lake.events ORDER BY event_type LIMIT 20"
-        ).fetchall()
-        event_types = [row[0] for row in event_types]
-    except Exception:
-        event_types = []
+    """Dashboard page: overview of entities and events, live."""
+    frames: Frames = request.app.state.frames
+    _, html, _ = frames.current("dashboard")
+    if html is None:  # the renderer has not published yet
+        html = render_dashboard(templates, lake)
 
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context={
-            "session": session,
-            "entity_count": entity_count,
-            "event_count": event_count,
-            "event_types": event_types,
-        },
+        context={"session": session, "dashboard": html, "stream_url": "/dashboard/stream"},
     )
+
+
+@pages_router.get("/dashboard/stream")
+async def dashboard_stream(request: Request, session: SessionDep):
+    """The dashboard's long-lived read: the newest frame, every time it changes.
+
+    It never renders; the renderer in server/live.py does that once per change
+    for every viewer, and this only copies bytes.
+    """
+    frames: Frames = request.app.state.frames
+
+    async def stream():
+        sent = 0
+        while True:
+            version, html, next_frame = frames.current("dashboard")
+            if html is not None and version != sent:
+                yield SSE.patch_elements(html)
+                sent = version
+            await next_frame.wait()
+
+    return DatastarResponse(stream())
+
+
+def find_entities(lake, search: str) -> list[str]:
+    try:
+        rows = lake.query(
+            "SELECT DISTINCT entity_id FROM lake.events "
+            "WHERE entity_id ILIKE '%' || ? || '%' ORDER BY entity_id LIMIT ?",
+            [search, ENTITY_LIMIT],
+        )
+    except Exception:  # no events table yet
+        return []
+    return [row[0] for row in rows]
 
 
 @pages_router.get("/entities", response_class=HTMLResponse)
@@ -82,39 +105,62 @@ async def entities_list(
     request: Request,
     lake: LakeDep,
     session: SessionDep,
-    search: str | None = Query(None),
+    search: str = Query(""),
 ):
     """Entity list page."""
-    where = ""
-    if search:
-        where = f"WHERE entity_id ILIKE '%{search}%'"
-
-    try:
-        result = lake.con.raw_sql(
-            f"SELECT DISTINCT entity_id FROM lake.events {where} ORDER BY entity_id LIMIT 100"
-        ).fetchall()
-        entities = [row[0] for row in result]
-    except Exception:
-        entities = []
-
-    is_htmx = request.headers.get("HX-Request") == "true"
-
-    if is_htmx:
-        # Return just the list fragment
-        items_html = ""
-        for entity in entities:
-            items_html += f'<tr><td><a href="/entities/{entity}">{entity}</a></td></tr>'
-        if not entities:
-            items_html = '<tr><td class="empty-state">No entities found.</td></tr>'
-        return HTMLResponse(items_html)
-
     return templates.TemplateResponse(
         request=request,
         name="entities.html",
         context={
-            "entities": entities,
+            "entities": find_entities(lake, search),
             "search": search,
             "session": session,
+        },
+    )
+
+
+@pages_router.get("/entities/rows")
+async def entity_rows(lake: LakeDep, session: SessionDep, signals: ReadSignals):
+    """Patch the entity table for the current search signal.
+
+    A one-shot read rather than a stream: the result depends only on the
+    query, so there is nothing to push later.
+    """
+    search = str((signals or {}).get("search", ""))
+    html = templates.get_template("_entity_rows.html").render(entities=find_entities(lake, search))
+    return DatastarResponse(SSE.patch_elements(html))
+
+
+@pages_router.get("/entities/{entity_id:path}", response_class=HTMLResponse)
+async def entity_detail(
+    request: Request,
+    entity_id: str,
+    lake: LakeDep,
+    session: SessionDep,
+):
+    """One entity: events per day and its most recent events."""
+    try:
+        per_day = lake.query(
+            "SELECT strftime(date_trunc('day', timestamp), '%Y-%m-%d') AS day, COUNT(*) "
+            "FROM lake.events WHERE entity_id = ? GROUP BY day ORDER BY day",
+            [entity_id],
+        )
+        events = lake.query(
+            "SELECT timestamp, event_type, value, value_string FROM lake.events "
+            "WHERE entity_id = ? ORDER BY timestamp DESC LIMIT 100",
+            [entity_id],
+        )
+    except Exception:
+        per_day, events = [], []
+
+    return templates.TemplateResponse(
+        request=request,
+        name="entity.html",
+        context={
+            "session": session,
+            "entity_id": entity_id,
+            "per_day": [list(row) for row in per_day],
+            "events": events,
         },
     )
 
@@ -167,8 +213,6 @@ async def verify_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-
-    import uuid
 
     user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, email))
     session = await create_session(

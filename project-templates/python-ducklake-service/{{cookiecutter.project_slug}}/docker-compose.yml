@@ -15,35 +15,33 @@ services:
       timeout: 5s
       retries: 5
 
-  minio:
-    image: minio/minio:latest
+  # S3-compatible object storage for the lake's Parquet files. SeaweedFS with
+  # no identities configured accepts any access key, so the .env.example
+  # credentials work as-is. (MinIO no longer publishes community images.)
+  s3:
+    image: chrislusf/seaweedfs:4.50
+    command: server -s3 -dir=/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      - "8333:8333"
     volumes:
-      - miniodata:/data
-    command: server /data --console-address ":9001"
+      - s3data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8333/healthz"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   createbucket:
-    image: minio/mc:latest
+    image: chrislusf/seaweedfs:4.50
     depends_on:
-      minio:
+      s3:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin;
-      mc mb --ignore-existing local/lake-data;
-      echo 'Bucket created';
+      echo 's3.bucket.list' | weed shell -master=s3:9333 | grep -q lake-data ||
+      echo 's3.bucket.create -name lake-data' | weed shell -master=s3:9333
       "
 
 volumes:
   pgdata:
-  miniodata:
+  s3data:

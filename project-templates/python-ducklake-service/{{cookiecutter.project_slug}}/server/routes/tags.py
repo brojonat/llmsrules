@@ -29,11 +29,11 @@ class TagEntityRequest(BaseModel):
 def create_tag(body: TagCreate, db: AppDbDep, session: SessionDep):
     """Create a tag (or return existing if already exists)."""
     result = db.raw_sql(
-        f"INSERT INTO tags (tag_type, key, value, description, created_by) "
-        f"VALUES ('{body.tag_type}', '{body.key}', '{body.value}', "
-        f"'{body.description or ''}', '{session.user_id}') "
-        f"ON CONFLICT (tag_type, key, value) DO UPDATE SET tag_type = tags.tag_type "
-        f"RETURNING id, tag_type, key, value, description"
+        "INSERT INTO tags (tag_type, key, value, description, created_by) "
+        "VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (tag_type, key, value) DO UPDATE SET tag_type = tags.tag_type "
+        "RETURNING id, tag_type, key, value, description",
+        (body.tag_type, body.key, body.value, body.description or "", session.user_id),
     ).fetchone()
     return {
         "id": str(result[0]),
@@ -52,15 +52,18 @@ def list_tags(
     key: str | None = None,
 ):
     """List tags, optionally filtered by type and/or key."""
-    conditions = []
+    conditions, params = [], []
     if tag_type:
-        conditions.append(f"tag_type = '{tag_type}'")
+        conditions.append("tag_type = %s")
+        params.append(tag_type)
     if key:
-        conditions.append(f"key = '{key}'")
+        conditions.append("key = %s")
+        params.append(key)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     rows = db.raw_sql(
-        f"SELECT id, tag_type, key, value, description FROM tags {where} ORDER BY tag_type, key"
+        f"SELECT id, tag_type, key, value, description FROM tags {where} ORDER BY tag_type, key",
+        params,
     ).fetchall()
 
     return [
@@ -72,7 +75,7 @@ def list_tags(
 @tags_router.delete("/tags/{tag_id}")
 def delete_tag(tag_id: str, db: AppDbDep, session: SessionDep):
     """Delete a tag and all its entity associations."""
-    result = db.raw_sql(f"DELETE FROM tags WHERE id = '{tag_id}' RETURNING id").fetchone()
+    result = db.raw_sql("DELETE FROM tags WHERE id = %s RETURNING id", (tag_id,)).fetchone()
     if not result:
         raise HTTPException(status_code=404, detail="Tag not found")
     return {"deleted": True}
@@ -94,15 +97,16 @@ def tag_entity(
 ):
     """Apply a tag to an entity."""
     # Verify tag exists
-    tag = db.raw_sql(f"SELECT id FROM tags WHERE id = '{body.tag_id}'").fetchone()
+    tag = db.raw_sql("SELECT id FROM tags WHERE id = %s", (body.tag_id,)).fetchone()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
 
     result = db.raw_sql(
-        f"INSERT INTO entity_tags (tag_id, entity_type, entity_id, created_by) "
-        f"VALUES ('{body.tag_id}', '{entity_type}', '{entity_id}', '{session.user_id}') "
-        f"ON CONFLICT (tag_id, entity_type, entity_id) DO NOTHING "
-        f"RETURNING id"
+        "INSERT INTO entity_tags (tag_id, entity_type, entity_id, created_by) "
+        "VALUES (%s, %s, %s, %s) "
+        "ON CONFLICT (tag_id, entity_type, entity_id) DO NOTHING "
+        "RETURNING id",
+        (body.tag_id, entity_type, entity_id, session.user_id),
     ).fetchone()
 
     return {"id": str(result[0]) if result else None, "applied": True}
@@ -118,9 +122,9 @@ def untag_entity(
 ):
     """Remove a tag from an entity."""
     result = db.raw_sql(
-        f"DELETE FROM entity_tags "
-        f"WHERE tag_id = '{tag_id}' AND entity_type = '{entity_type}' "
-        f"AND entity_id = '{entity_id}' RETURNING id"
+        "DELETE FROM entity_tags "
+        "WHERE tag_id = %s AND entity_type = %s AND entity_id = %s RETURNING id",
+        (tag_id, entity_type, entity_id),
     ).fetchone()
     if not result:
         raise HTTPException(status_code=404, detail="Tag not applied to this entity")
@@ -136,10 +140,11 @@ def get_entity_tags(
 ):
     """Get all tags for an entity."""
     rows = db.raw_sql(
-        f"SELECT t.id, t.tag_type, t.key, t.value, t.description "
-        f"FROM tags t JOIN entity_tags et ON t.id = et.tag_id "
-        f"WHERE et.entity_type = '{entity_type}' AND et.entity_id = '{entity_id}' "
-        f"ORDER BY t.tag_type, t.key"
+        "SELECT t.id, t.tag_type, t.key, t.value, t.description "
+        "FROM tags t JOIN entity_tags et ON t.id = et.tag_id "
+        "WHERE et.entity_type = %s AND et.entity_id = %s "
+        "ORDER BY t.tag_type, t.key",
+        (entity_type, entity_id),
     ).fetchall()
 
     return [

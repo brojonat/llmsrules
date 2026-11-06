@@ -1,0 +1,37 @@
+{% raw %}{% extends "base.html" %}
+
+{% block title %}{{ entity_id }} - {% endraw %}{{cookiecutter.project_name}}{% raw %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ entity_id }}</h1>
+    <p><a href="/entities">All entities</a></p>
+</div>
+
+{% if per_day %}
+<div class="panel">
+    <h2>Events per day</h2>
+    <chart-bars id="entity-per-day" label="Events per day for {{ entity_id }}" series='{{ per_day|tojson }}'></chart-bars>
+</div>
+{% endif %}
+
+<div class="panel">
+    <h2>Recent events</h2>
+    <table class="data-table">
+        <thead>
+            <tr><th>Time</th><th>Type</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+            {% for ts, event_type, value, value_string in events %}
+            <tr>
+                <td>{{ ts.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                <td>{{ event_type }}</td>
+                <td>{{ value if value is not none else (value_string or "") }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="empty-state">No events for this entity.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}{% endraw %}

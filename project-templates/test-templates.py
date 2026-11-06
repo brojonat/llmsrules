@@ -376,30 +376,28 @@ def validate_ducklake(project_dir: Path) -> None:
     """Validate python-ducklake-service template."""
     section("Validating python-ducklake-service")
 
-    run_with_output("make help", cwd=project_dir)
-    success("make help works")
+    run_with_output(["mise", "trust", "-q", "."], cwd=project_dir)
+    run_with_output(["mise", "tasks"], cwd=project_dir)
+    success("mise tasks lists the front door")
 
-    run_with_output(["uv", "sync", "--all-extras"], cwd=project_dir)
-    success("uv sync --all-extras works")
+    run_with_output(["mise", "run", "setup"], cwd=project_dir)
+    success("mise run setup works")
 
-    run_with_output(["uv", "run", "test-ducklake-service", "--help"], cwd=project_dir)
+    # The CLI runs through `python -m` so it can import server/ and migrations/.
+    run_with_output(["mise", "run", "cli", "--help"], cwd=project_dir)
+    run_with_output(["mise", "run", "cli", "migrate", "--help"], cwd=project_dir)
     success("CLI --help works")
 
-    run_with_output(["uv", "run", "test-ducklake-service", "serve", "--help"], cwd=project_dir)
-    success("CLI serve --help works")
+    run_with_output(["mise", "run", "lint"], cwd=project_dir)
+    success("mise run lint works")
 
-    run_with_output(["uv", "run", "test-ducklake-service", "migrate", "--help"], cwd=project_dir)
-    success("CLI migrate --help works")
-
-    run_with_output("make lint", cwd=project_dir)
-    success("make lint works")
-
-    # Tests need env vars but no running services
+    # Tests need env vars but no running services (Datastar partials, frames,
+    # SQL filters); the health test needs Postgres + S3 and is skipped.
     env = os.environ.copy()
     env["SKIP_INTEGRATION"] = "1"
-    log("make test (SKIP_INTEGRATION=1)")
-    subprocess.run(["make", "test"], cwd=project_dir, check=True, env=env)
-    success("make test works")
+    log("mise run test (SKIP_INTEGRATION=1)")
+    subprocess.run(["mise", "run", "test"], cwd=project_dir, check=True, env=env)
+    success("mise run test works")
 
     success("python-ducklake-service validation complete")
 
@@ -408,18 +406,20 @@ def validate_realtime(project_dir: Path) -> None:
     """Validate go-real-time-service template."""
     section("Validating go-real-time-service")
 
-    run_with_output("make help", cwd=project_dir)
-    success("make help works")
+    run_with_output(["mise", "trust", "-q", "."], cwd=project_dir)
+    run_with_output(["mise", "install"], cwd=project_dir)
+    run_with_output(["mise", "tasks"], cwd=project_dir)
+    success("mise tasks lists the front door")
 
     # Downloads datastar/daisyui, tidies modules, runs templ + tailwind.
     # Needs network access.
-    run_with_output("make setup", cwd=project_dir)
-    success("make setup works")
+    run_with_output(["mise", "run", "setup"], cwd=project_dir)
+    success("mise run setup works")
 
-    # Generated output is gitignored. `make clean` removes it, and a bare
+    # Generated output is gitignored. `mise run clean` removes it, and a bare
     # `go build` must then fail -- that is what stops anyone compiling a stale
     # template instead of the .templ file they just edited.
-    run_with_output("make clean", cwd=project_dir)
+    run_with_output(["mise", "run", "clean"], cwd=project_dir)
     result = subprocess.run(
         ["go", "build", "./..."], cwd=project_dir, capture_output=True, text=True
     )
@@ -428,14 +428,17 @@ def validate_realtime(project_dir: Path) -> None:
     else:
         warn("bare `go build` unexpectedly succeeded without codegen")
 
-    run_with_output("make build", cwd=project_dir)
-    success("make build works")
+    run_with_output(["mise", "run", "build"], cwd=project_dir)
+    success("mise run build works")
 
     run_with_output("./bin/test-realtime-service --help", cwd=project_dir)
     success("CLI --help works")
 
-    run_with_output("make test", cwd=project_dir)
-    success("make test works")
+    run_with_output(["mise", "run", "test"], cwd=project_dir)
+    success("mise run test works")
+
+    run_with_output(["mise", "run", "lint"], cwd=project_dir)
+    success("mise run lint works")
 
     log("Starting server briefly...")
     env = os.environ.copy()

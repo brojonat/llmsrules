@@ -1,0 +1,45 @@
+{% raw %}{#- The dashboard's live region. server/live.py renders it for the first page
+    load and for every frame on /dashboard/stream; Datastar morphs it in by id. #}
+<div id="dashboard">
+    <div class="features">
+        <div class="stat">
+            <span class="stat-value">{{ "{:,}".format(entity_count) }}</span>
+            <span class="stat-label">Entities</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ "{:,}".format(event_count) }}</span>
+            <span class="stat-label">Events</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ event_types|length }}</span>
+            <span class="stat-label">Event Types</span>
+        </div>
+    </div>
+
+    {% if not ready %}
+    <p class="empty-state">The lake has no events table yet. Run <code>mise run migrate</code>.</p>
+    {% elif not event_count %}
+    <p class="empty-state">No events yet. POST some to <code>/api/events</code>; this page updates on its own.</p>
+    {% else %}
+    <div class="panel">
+        <h2>Events per day (last 30 days)</h2>
+        {# A d3 Rocket component: the data rides in an attribute, and a morph that
+           changes it makes d3 redraw. #}
+        <chart-bars id="events-per-day" label="Events per day" series='{{ per_day|tojson }}'></chart-bars>
+    </div>
+
+    <div class="panel">
+        <h2>Event types</h2>
+        <table class="data-table">
+            <thead>
+                <tr><th>Type</th><th>Events</th></tr>
+            </thead>
+            <tbody>
+                {% for event_type, n in event_types %}
+                <tr><td>{{ event_type }}</td><td>{{ "{:,}".format(n) }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>{% endraw %}

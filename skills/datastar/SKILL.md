@@ -8,7 +8,8 @@ description:
   `@get`/`@post` actions, or the `datastar-py` / `datastar-go` SDKs. Also use
   when a task calls for live-updating or multiplayer UI without a SPA, or for
   immediate-mode / tick-based server rendering (fat morph, frames, render
-  loops, streaming compression).
+  loops, streaming compression), or for charts: d3 wrapped in Rocket web
+  components that the server drives through attributes.
 ---
 
 # Datastar
@@ -874,6 +875,85 @@ for a shared board and wrong for a per-user view. Key the store by session,
 read the session id in both the stream and the write handlers, and notify only
 that session's watchers. Everything else in the shape is unchanged.
 
+## Watch a version counter when you don't own the writes
+
+When writes come from other processes (ingest jobs, a CLI, another service),
+there is no write handler to call `MarkDirty`. Poll a cheap counter the store
+already keeps and re-render when it moves: the latest DuckLake snapshot id
+(`SELECT max(snapshot_id) FROM lake.snapshots()`), SQLite's `PRAGMA
+data_version`, a Postgres `LISTEN` channel, a NATS KV revision. One poller per
+view, not per stream; it feeds the same frame loop as above.
+`project-templates/python-ducklake-service` (`server/live.py`) does this with
+DuckLake snapshots.
+
+## Charts: d3 in Rocket web components
+
+Charts are where people reach for a client-side framework. Don't: wrap d3 in a
+[Rocket](https://data-star.dev/reference/rocket) web component and let the server drive it
+through attributes, like any other HTML.
+
+Load the Rocket bundle instead of `datastar.js` (it is the full Datastar
+bundle plus Rocket; never load both), and d3 through an import map:
+
+```html
+<script type="importmap">
+{"imports": {
+  "datastar": "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.4/bundles/datastar-rocket.js",
+  "d3": "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm"
+}}
+</script>
+<script type="module" src="/static/components.js"></script>
+```
+
+The server renders a bare element with its data in attributes, as part of the
+region's fat morph. A later morph that changes an attribute makes d3 redraw:
+
+```html
+<chart-bars id="events-per-day" series='{{ per_day|tojson }}'></chart-bars>
+```
+
+```js
+import { rocket } from 'datastar'
+import * as d3 from 'd3'
+
+rocket('chart-bars', {
+  mode: 'open',                 // shadow root: morphs never touch the SVG
+  renderOnPropChange: false,    // prop changes redraw; they don't re-render
+  props: ({ json }) => ({ series: json.default(() => []) }),
+  render: ({ html }) => html`<svg></svg>`,
+  onFirstRender: ({ host, props, observeProps }) => {
+    const svg = d3.select(host.shadowRoot.querySelector('svg'))
+    const draw = () => { /* d3 joins against props.series, with transitions */ }
+    observeProps(draw)
+    draw()
+  },
+})
+```
+
+The rules that make it work:
+
+- **`mode: 'open'`.** Morph syncs the host's attributes and then morphs its
+  light-DOM children toward the server's (empty) markup, so in light mode every
+  patch erases what d3 drew.
+- **An `id` on every chart host**, so the morph keeps the same element and d3
+  transitions from the old data instead of starting over.
+- **`renderOnPropChange: false`**, or Rocket re-runs `render()` and replaces
+  the skeleton d3 draws into.
+- **Chart data lives in attributes, never in signals.** The server knows it;
+  a signal copy would drift (Tao #4).
+- **JSON attributes in single quotes, via `tojson`** (Jinja escapes `'`, not
+  `"`). In Go templates, `html/template` escapes attribute values for you.
+- **Gestures come back as DOM events** (`emit('chart-range', { from, to })`;
+  always an object, since a string second argument is read as another event
+  name). The page turns them into ordinary `@post` commands, and the new
+  selection arrives in the next frame as an attribute.
+- Styling comes from CSS custom properties on the page, which inherit through
+  the shadow boundary, so a theme toggle restyles charts with no code.
+
+`project-templates/python-ducklake-service` has a minimal `chart-bars`;
+`project-templates/python-warehouse-dashboard` has bars, horizontal bars,
+lines, sparklines, and a US map, with drag-to-select and click-to-toggle.
+
 ---
 
 # Gotchas
@@ -1035,6 +1115,11 @@ each:
 
 Both wake every stream on every write and render inside the stream: the right
 first version, and the one to outgrow.
+
+Two Python templates add charts as d3 Rocket components on top of the loop:
+`python-warehouse-dashboard` (per-session dashboard, full chart set) and
+`python-ducklake-service` (a shared dashboard re-rendered once per DuckLake
+snapshot).
 
 `project-templates/go-real-time-service` is the **tick-based reference**:
 `internal/frames` renders every live view on one tick loop, streams send the

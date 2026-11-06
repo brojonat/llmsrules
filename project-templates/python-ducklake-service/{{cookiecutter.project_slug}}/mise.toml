@@ -1,0 +1,73 @@
+# mise is the front door: `mise tasks` lists everything, `mise run <task>`.
+# Extra arguments are appended to a task's command; tasks that tee wrap the
+# command in a function so appended args land on the command, not on tee.
+
+[tools]
+uv = "latest"
+
+[env]
+# Copy .env.example to .env (gitignored); loaded if present.
+_.file = { path = ".env", redact = false }
+
+[tasks.setup]
+description = "Install dependencies (including dev) into .venv"
+run = "uv sync --all-extras"
+
+[tasks.services]
+description = "Start Postgres (lake catalog + app db) and SeaweedFS (S3) in Docker"
+run = "docker compose up -d --wait postgres s3 && docker compose run --rm createbucket"
+
+[tasks."services:down"]
+description = "Stop the Docker services (data volumes are kept)"
+run = "docker compose down"
+
+# The CLI imports the top-level server/ and migrations/ packages, so it runs
+# with `python -m` from the project root (which puts the root on sys.path).
+
+[tasks.cli]
+description = "Run the project CLI: mise run cli lake snapshots"
+run = 'f() { uv run python -m {{cookiecutter.package_name}}.cli "$@"; }; f'
+
+[tasks.migrate]
+description = "Run pending lake and app migrations"
+run = "uv run python -m {{cookiecutter.package_name}}.cli migrate"
+
+[tasks.dev]
+description = "Serve with hot reload on :8000, tee to logs/server.log"
+run = 'mkdir -p logs; f() { uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8000 "$@" 2>&1 | tee -i logs/server.log; }; f'
+
+[tasks.run]
+description = "Serve without reload"
+run = 'f() { uv run uvicorn server.main:app --host 0.0.0.0 --port 8000 "$@"; }; f'
+
+[tasks.test]
+description = "Run tests"
+run = 'f() { uv run pytest -q "$@"; }; f'
+
+[tasks.lint]
+description = "ruff check + format check"
+run = [
+  "uv run ruff check src/ server/ tests/ migrations/",
+  "uv run ruff format --check src/ server/ tests/ migrations/",
+]
+
+[tasks.fmt]
+description = "ruff fix + format"
+run = [
+  "uv run ruff check --fix src/ server/ tests/ migrations/",
+  "uv run ruff format src/ server/ tests/ migrations/",
+]
+
+[tasks.clean]
+description = "Remove caches, build artifacts and logs"
+run = 'rm -rf "${MISE_PROJECT_ROOT:?}/.pytest_cache" "${MISE_PROJECT_ROOT:?}/.ruff_cache" "${MISE_PROJECT_ROOT:?}/dist" "${MISE_PROJECT_ROOT:?}"/logs/*.log'
+
+# Deployment
+
+[tasks.deploy]
+description = "Build, push, and apply k8s/prod (reads .env.prod)"
+run = "scripts/deploy.sh"
+
+[tasks.logs]
+description = "Tail production logs"
+run = "kubectl logs -f deployment/{{cookiecutter.project_slug}}"

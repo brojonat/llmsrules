@@ -1,5 +1,7 @@
 """FastAPI application entrypoint."""
 
+import asyncio
+import contextlib
 import time
 from contextlib import asynccontextmanager
 
@@ -11,9 +13,11 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from server.config import check_required_env_vars, get_settings
 from server.data import get_connection
 from server.data.app_db import get_app_db
+from server.live import Frames, run_renderer
 from server.log_config import configure_logging, get_logger
 from server.metrics import HTTP_REQUEST_DURATION, HTTP_REQUESTS_TOTAL
 from server.routes import api_router, pages_router, tags_router
+from server.routes.pages import templates
 
 log = get_logger(__name__)
 
@@ -46,9 +50,16 @@ async def lifespan(app: FastAPI):
             "ON CONFLICT (id) DO NOTHING"
         )
 
+    # One renderer for every live view; streams only copy its frames.
+    app.state.frames = Frames()
+    renderer = asyncio.create_task(run_renderer(lake, templates, app.state.frames))
+
     yield
 
     # Cleanup
+    renderer.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await renderer
     app_db.close()
     lake.close()
     log.info("{{cookiecutter.package_name}}_shutdown")

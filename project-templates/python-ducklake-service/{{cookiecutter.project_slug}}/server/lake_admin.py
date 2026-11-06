@@ -2,9 +2,11 @@
 
 import boto3
 from botocore.config import Config
+from migrations.runner import MigrationRunner
 
 from server.config import get_settings
 from server.data import get_connection
+from server.data.app_db import get_app_db
 from server.log_config import get_logger
 
 log = get_logger(__name__)
@@ -142,6 +144,13 @@ def reset_lake(dry_run: bool = False, confirm: bool = False) -> dict:
 
     # Drop tables first (catalog metadata)
     tables = drop_all_tables(dry_run=dry_run)
+
+    # Lake migrations are tracked in the app database; forget them so the next
+    # `migrate` recreates the tables.
+    if not dry_run:
+        app_db = get_app_db()
+        MigrationRunner(app_db, namespace="lake").ensure_tracking_table()
+        app_db.raw_sql("DELETE FROM _migrations WHERE namespace = 'lake'")
 
     # Delete S3 objects (actual data)
     deleted_objects = delete_s3_objects(dry_run=dry_run)

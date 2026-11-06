@@ -336,21 +336,23 @@ input:focus {
     color: var(--color-text-muted);
 }
 
-/* Map container (for Leaflet, if used) */
-#map {
-    height: 400px;
-    border-radius: var(--radius);
-    border: 1px solid var(--color-border);
+/* Charts are d3 Rocket components (static/js/components.js). They draw in
+   their own shadow DOM and read the color tokens above. */
+chart-bars {
+    display: block;
+    min-height: 220px;
 }
 
-[data-theme="dark"] .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg);
-}
-
-[data-theme="dark"] .leaflet-control-zoom a {
+.panel {
     background: var(--color-surface);
-    color: var(--color-text);
-    border-color: var(--color-border);
+    padding: 1rem 1.5rem;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-top: 2rem;
+}
+
+.panel h2 {
+    margin-top: 0;
 }
 
 /* Loading spinner */

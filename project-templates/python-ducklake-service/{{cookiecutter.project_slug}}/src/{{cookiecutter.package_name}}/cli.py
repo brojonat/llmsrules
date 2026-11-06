@@ -58,11 +58,15 @@ def migrate() -> None:
         name = parts[1] if len(parts) > 1 else f.stem
         app_migrations.append(Migration(version=version, name=name, up=f.read_text()))
 
-    # Lake migrations — tracked and executed in DuckDB (via DuckLake catalog)
+    app_db = get_app_db()
+    app_db.connect()
+
+    # Lake migrations — executed in DuckDB against the DuckLake catalog, tracked
+    # in the app database (DuckDB's own catalog is in-memory and forgets).
     lake_conn = get_connection()
     lake_con = lake_conn.connect()
 
-    lake_runner = MigrationRunner(lake_con, namespace="lake")
+    lake_runner = MigrationRunner(app_db, namespace="lake")
     applied = lake_runner.run(LAKE_MIGRATIONS, target_con=lake_con)
     if applied:
         click.echo(f"Applied {len(applied)} lake migration(s):")
@@ -72,9 +76,6 @@ def migrate() -> None:
         click.echo("Lake migrations up to date.")
 
     # App migrations — tracked and executed in the app PostgreSQL database
-    app_db = get_app_db()
-    app_db.connect()
-
     app_runner = MigrationRunner(app_db, namespace="app")
     applied = app_runner.run(app_migrations)
     if applied:

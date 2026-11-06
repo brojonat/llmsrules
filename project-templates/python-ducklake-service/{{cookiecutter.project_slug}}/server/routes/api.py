@@ -1,10 +1,11 @@
 """JSON API routes for events and entities."""
 
+import asyncio
 import json
 from datetime import datetime
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -51,6 +52,71 @@ class QueryRequest(BaseModel):
 # --- Routes ---
 
 
+EVENT_COLUMNS = "timestamp, entity_id, event_type, value, value_string, metadata"
+
+
+def event_filters(
+    entity_id: str | None,
+    event_type: str | None,
+    start: datetime | None,
+    end: datetime | None,
+) -> tuple[str, list]:
+    """A WHERE clause with `?` placeholders, and its parameters."""
+    conditions, params = [], []
+    for clause, value in (
+        ("entity_id = ?", entity_id),
+        ("event_type = ?", event_type),
+        ("timestamp >= ?", start),
+        ("timestamp <= ?", end),
+    ):
+        if value is not None:
+            conditions.append(clause)
+            params.append(value)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    return where, params
+
+
+def event_item(row: tuple) -> EventItem:
+    metadata = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+    return EventItem(
+        timestamp=row[0],
+        entity_id=row[1],
+        event_type=row[2],
+        value=row[3],
+        value_string=row[4],
+        metadata=metadata,
+    )
+
+
+@api_router.post("/events", status_code=status.HTTP_201_CREATED)
+async def create_events(
+    events: list[EventCreate],
+    lake: LakeDep,
+    session: SessionDep,
+) -> dict[str, int]:
+    """Append events to the lake in one snapshot. Live views pick the change up."""
+    if not events:
+        return {"inserted": 0}
+    rows = [
+        [
+            e.timestamp,
+            e.entity_id,
+            e.event_type,
+            e.value,
+            e.value_string,
+            json.dumps(e.metadata) if e.metadata is not None else None,
+            e.date or e.timestamp.date().isoformat(),
+        ]
+        for e in events
+    ]
+    await asyncio.to_thread(
+        lake.execute_many,
+        f"INSERT INTO lake.events ({EVENT_COLUMNS}, date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    return {"inserted": len(rows)}
+
+
 @api_router.get("/events")
 async def list_events(
     lake: LakeDep,
@@ -63,35 +129,12 @@ async def list_events(
     offset: int = Query(0, ge=0),
 ) -> list[EventItem]:
     """List events with optional filters."""
-    conditions = []
-    if entity_id:
-        conditions.append(f"entity_id = '{entity_id}'")
-    if event_type:
-        conditions.append(f"event_type = '{event_type}'")
-    if start:
-        conditions.append(f"timestamp >= '{start.isoformat()}'")
-    if end:
-        conditions.append(f"timestamp <= '{end.isoformat()}'")
-
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    sql = (
-        f"SELECT timestamp, entity_id, event_type, value, value_string, metadata "
-        f"FROM lake.events {where} "
-        f"ORDER BY timestamp DESC LIMIT {limit} OFFSET {offset}"
+    where, params = event_filters(entity_id, event_type, start, end)
+    rows = lake.query(
+        f"SELECT {EVENT_COLUMNS} FROM lake.events {where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+        [*params, limit, offset],
     )
-
-    result = lake.con.raw_sql(sql).fetchall()
-    return [
-        EventItem(
-            timestamp=row[0],
-            entity_id=row[1],
-            event_type=row[2],
-            value=row[3],
-            value_string=row[4],
-            metadata=row[5],
-        )
-        for row in result
-    ]
+    return [event_item(row) for row in rows]
 
 
 @api_router.get("/entities")
@@ -100,20 +143,15 @@ async def list_entities(
     session: SessionDep,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    search: str | None = Query(None),
+    search: str = Query(""),
 ) -> list[EntityListItem]:
     """List distinct entities."""
-    where = ""
-    if search:
-        where = f"WHERE entity_id ILIKE '%{search}%'"
-
-    sql = (
-        f"SELECT DISTINCT entity_id FROM lake.events {where} "
-        f"ORDER BY entity_id LIMIT {limit} OFFSET {offset}"
+    rows = lake.query(
+        "SELECT DISTINCT entity_id FROM lake.events "
+        "WHERE entity_id ILIKE '%' || ? || '%' ORDER BY entity_id LIMIT ? OFFSET ?",
+        [search, limit, offset],
     )
-
-    result = lake.con.raw_sql(sql).fetchall()
-    return [EntityListItem(entity_id=row[0]) for row in result]
+    return [EntityListItem(entity_id=row[0]) for row in rows]
 
 
 @api_router.get("/events/stream", response_model=None)
@@ -130,45 +168,23 @@ async def stream_events(
     First line is metadata: {"_metadata": {"total": N, "entity_id": "..."}}
     Subsequent lines are event objects.
     """
-    conditions = [f"entity_id = '{entity_id}'"]
-    if event_type:
-        conditions.append(f"event_type = '{event_type}'")
-    if start:
-        conditions.append(f"timestamp >= '{start.isoformat()}'")
-    if end:
-        conditions.append(f"timestamp <= '{end.isoformat()}'")
-
-    where = " AND ".join(conditions)
+    where, params = event_filters(entity_id, event_type, start, end)
 
     async def generate() -> AsyncGenerator[str, None]:
-        count_sql = f"SELECT COUNT(*) FROM lake.events WHERE {where}"
-        count = lake.con.raw_sql(count_sql).fetchone()[0]
+        count = lake.query(f"SELECT COUNT(*) FROM lake.events {where}", params)[0][0]
 
         meta = {"_metadata": {"total": count, "entity_id": entity_id}}
         yield json.dumps(meta) + "\n"
 
         offset = 0
         while offset < count:
-            sql = (
-                f"SELECT timestamp, entity_id, event_type, value, value_string, metadata "
-                f"FROM lake.events WHERE {where} "
-                f"ORDER BY timestamp LIMIT {STREAM_CHUNK_SIZE} OFFSET {offset}"
+            rows = lake.query(
+                f"SELECT {EVENT_COLUMNS} FROM lake.events {where} "
+                f"ORDER BY timestamp LIMIT ? OFFSET ?",
+                [*params, STREAM_CHUNK_SIZE, offset],
             )
-            rows = lake.con.raw_sql(sql).fetchall()
             for row in rows:
-                yield (
-                    json.dumps(
-                        {
-                            "timestamp": row[0].isoformat() if row[0] else None,
-                            "entity_id": row[1],
-                            "event_type": row[2],
-                            "value": row[3],
-                            "value_string": row[4],
-                            "metadata": row[5],
-                        }
-                    )
-                    + "\n"
-                )
+                yield event_item(row).model_dump_json() + "\n"
             offset += STREAM_CHUNK_SIZE
 
     return StreamingResponse(

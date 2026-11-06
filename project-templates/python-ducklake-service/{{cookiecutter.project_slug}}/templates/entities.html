@@ -8,15 +8,15 @@
 </div>
 
 <div class="search-bar">
+    {# data-bind keeps the search signal in sync with the input; @get sends it and
+       the response patches #entity-list. Datastar cancels a stale request when a
+       newer one starts. #}
     <input
         type="search"
-        name="search"
         placeholder="Search entities..."
-        hx-get="/entities"
-        hx-trigger="input changed delay:300ms"
-        hx-target="#entity-list"
-        hx-swap="innerHTML"
-        {% if search %}value="{{ search }}"{% endif %}
+        data-bind:search
+        data-on:input__debounce.300ms="@get('/entities/rows')"
+        value="{{ search or '' }}"
     >
 </div>
 
@@ -24,12 +24,6 @@
     <thead>
         <tr><th>Entity ID</th></tr>
     </thead>
-    <tbody id="entity-list">
-        {% for entity in entities %}
-        <tr><td><a href="/entities/{{ entity }}">{{ entity }}</a></td></tr>
-        {% else %}
-        <tr><td class="empty-state">No entities found.</td></tr>
-        {% endfor %}
-    </tbody>
+    {% include "_entity_rows.html" %}
 </table>
 {% endblock %}{% endraw %}
