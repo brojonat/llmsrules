@@ -49,6 +49,33 @@ also the source of a whole class of bugs, for two reasons:
    the parent, the grandparent, and so on up the chain. That's non-local
    reasoning, exactly what Rust otherwise lets you avoid.
 
+### Which way to look
+
+Cancellation *flows* down, so the direction you look depends on which end of
+the chain your code is on:
+
+- **You hold the cancel-unsafe operation → look up.** Whether your code is
+  cancel-unsafe is local: read the function. Whether it ever *gets* cancelled
+  is not. The cancellation starts in some ancestor (a `select!`, `timeout`,
+  `try_join`, or a dropped HTTP handler) that may be several files away:
+
+  ```rust
+  // your function: looks fine locally
+  async fn update_sled(shared: Arc<Mutex<State>>) { /* take(), .await, put back */ }
+
+  // somewhere up the call chain, in code you never opened:
+  let _ = timeout(Duration::from_secs(1), reconcile_all()).await; // drops update_sled mid-flight
+  ```
+
+- **You do the cancelling → look down.** If you're writing the `select!` or
+  `timeout`, check everything beneath that point for cancel-unsafe operations,
+  because dropping your future drops all of them.
+
+Neither end can see the other, so no local check catches the bug. The fixes
+split the same way: tasks and actors **cut the chain from above**, so ancestors
+can't reach your code. Cancel-safe APIs make the **children harmless**, so
+whoever cancels doesn't have to worry about what's below.
+
 ## Cancel safety vs. cancel correctness
 
 - **Cancel safety** is a *local* property of one future: it can be
