@@ -65,7 +65,13 @@ func handleEvents(renderer *frames.Renderer, logger *slog.Logger) http.Handler {
 		}
 		defer sub.Close()
 
-		sse := datastar.NewSSE(w, r, datastar.WithCompression())
+		// Brotli's default 4 MiB window holds ~15 MiB per open stream; a 64 KiB
+		// window compresses frames under ~32KB just as well for ~1.8 MiB.
+		// Naming a compressor drops the defaults, so list gzip as the fallback.
+		sse := datastar.NewSSE(w, r, datastar.WithCompression(
+			datastar.WithBrotli(datastar.WithBrotliLGWin(16)),
+			datastar.WithGzip(),
+		))
 		err = sub.Stream(r.Context(), func(html []byte) error {
 			return sse.PatchElements(string(html))
 		})

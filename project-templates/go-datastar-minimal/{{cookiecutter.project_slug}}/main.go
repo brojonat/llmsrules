@@ -165,7 +165,9 @@ func handleUpdates(s *store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// NewSSE writes the SSE headers and flushes every event it sends.
 		// Add datastar.WithCompression() to negotiate Brotli/gzip on the
-		// stream -- repetitive HTML compresses at ratios around 200:1.
+		// stream -- repetitive HTML compresses at ratios around 200:1. Pass
+		// datastar.WithBrotli(datastar.WithBrotliLGWin(16)), datastar.WithGzip()
+		// to it: the default 4 MiB Brotli window costs ~15 MiB per stream.
 		sse := datastar.NewSSE(w, r)
 
 		changed, stop := s.watch()

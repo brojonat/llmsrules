@@ -764,6 +764,17 @@ Brotli/gzip/zstd from the client's `Accept-Encoding`, and fat-morph HTML
 compresses at ratios around 200:1. `curl` sends no `Accept-Encoding` by default,
 so the stream stays readable by hand while browsers get compression.
 
+Set the Brotli window, though. The bare default holds about 15 MiB per open
+stream (see Gotchas). Passing any compressor replaces the whole default list,
+so name the fallbacks too:
+
+```go
+sse := datastar.NewSSE(w, r, datastar.WithCompression(
+    datastar.WithBrotli(datastar.WithBrotliLGWin(16)), // 64 KiB window, ~1.8 MiB per stream
+    datastar.WithGzip(),
+))
+```
+
 ## No SDK at all
 
 The protocol is small enough to write by hand when a dependency is not worth it:
@@ -1033,6 +1044,33 @@ with `zlib` sync-flushing each frame: a 15KB frame compressed to 213 bytes per
 tick, a 62KB frame to 11.6KB per tick. zstd stayed at 473 bytes for the 62KB
 frame. Use Brotli or zstd for big frames, or keep gzip'd live regions small.
 
+**Brotli's default window costs megabytes per connection.** Each stream keeps
+its own encoder, and the encoder's memory is set by the window (`lgwin`: a
+2^lgwin-byte ring buffer plus hash tables sized to it), not by the frame. The
+default is lgwin 22, a 4 MiB window, while frames are usually tens of KB. Measured per
+open stream after 300 ticks of a 16KB frame (RSS, so steady state; the ring
+buffer fills over the first few hundred ticks, so a short test understates it):
+
+| Encoder | Settings | Per stream | Bytes per tick |
+| --- | --- | --- | --- |
+| Go, `datastar.WithCompression()` | quality 6, lgwin 22 (auto) | 14.8 MiB | 1,219 |
+| Go, `WithBrotliLGWin(16)` | quality 6, lgwin 16 | 1.8 MiB | 1,219 |
+| Rust, tower-http `CompressionLayer` | quality 4, lgwin 22 | 6.8 MiB | 1,766 |
+| Rust, `brotli` crate | quality 5, lgwin 17 | 1.5 MiB | 1,217 |
+
+The small window compresses exactly as well, because a frame only needs the
+previous frame to find its matches. Rule of thumb: 2^lgwin at least twice the
+largest frame (lgwin 16 covers frames up to ~32KB, 18 up to ~128KB). At a
+thousand viewers that is the difference between 15 GB and 2 GB.
+
+Rust specifics: the `datastar` crate does not compress, and tower-http's
+`CompressionLayer` skips `text/event-stream` under its default predicate and
+exposes no window setting, so use the `brotli` crate directly in the stream
+handler (`CompressorWriter::with_params`, flush after every event). Avoid
+quality 5–6 with lgwin 16 or below in that crate: it switches to a different
+hasher and holds about 15 MiB per encoder. Quality 5 at lgwin 17 is the sweet
+spot measured above.
+
 ---
 
 # Testing
@@ -1082,8 +1120,9 @@ numbers look too good, that is the first thing to suspect.
 
 - **Compress the stream.** Brotli on `text/event-stream` gets ratios around
   200:1 on repetitive fat-morph HTML. This is the single biggest win. Each
-  connection holds its own compression context, so measure memory per open
-  stream with compression on.
+  connection holds its own compression context, so set the Brotli window to
+  about twice the largest frame (lgwin 16–18) rather than the 4 MiB default,
+  and measure memory per open stream with compression on (see Gotchas).
 - **No idle or read timeouts** anywhere on the path — server, ingress, LB.
 - **Disable proxy buffering** (`X-Accel-Buffering: no`, or the equivalent).
 - **Budget one open connection per browser tab.** A long-lived request per
