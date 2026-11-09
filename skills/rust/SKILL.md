@@ -1,6 +1,6 @@
 ---
 name: rust
-description: Write Rust services, CLIs, and libraries, with a focus on async Rust (Tokio, axum), cancellation correctness, and graceful shutdown. Use when writing or reviewing Rust code, especially anything with async/await, tokio::spawn, select!, timeouts, channels, mutexes, HTTP handlers, signal handling (Ctrl-C, SIGTERM), or child processes.
+description: Write Rust services, CLIs, and libraries, with a focus on async Rust (Tokio, axum), cancellation correctness, and graceful shutdown. Use when writing or reviewing Rust code, especially anything with async/await, tokio::spawn, select!, timeouts, channels, mutexes, HTTP handlers, signal handling (Ctrl-C, SIGTERM, SIGPIPE), child processes, or running as PID 1 in a container.
 ---
 
 # Rust
@@ -26,5 +26,6 @@ else: simple, explicit dependencies, compose with pipes, JSON on stdout.
 
 - [`references/async.md`](references/async.md): Tokio's execution model,
   compared with Go, and **cancellation**: why any future can stop at any
-  `.await`, the bugs that causes, and the patterns that prevent them. Read this
-  before writing or reviewing async code.
+  `.await`, the bugs that causes, and the patterns that prevent them; plus
+  graceful shutdown, Unix signals, child process groups, and exit status. Read
+  this before writing or reviewing async code or anything that handles signals.

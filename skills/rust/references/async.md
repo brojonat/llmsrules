@@ -290,14 +290,23 @@ A signal handler can run between any two instructions of your program. If it
 fires while you hold a lock and then takes the same lock, you deadlock. The
 allocator takes locks, so a handler **can't allocate**: no `String`, no `Vec`,
 no logging. Only functions listed as async-signal-safe (`man 7 signal-safety`)
-are allowed, such as `write(2)` to a file descriptor. ("Async" there is
-unrelated to async Rust. It's the opposite: async Rust can only be interrupted
-at `.await`, while a signal handler can interrupt you anywhere.)
+are allowed, such as `write(2)` to a file descriptor. A second signal can also
+arrive while the first handler is still running, so handlers interrupt each
+other too. ("Async" there is unrelated to async Rust. It's the opposite: async
+Rust can only be interrupted at `.await`, while a signal handler can interrupt
+you anywhere.)
 
 The standard workaround is the **self-pipe trick**: the handler writes one byte
 to a pipe the process owns, and normal code reads the other end. Don't write
 it by hand. `tokio::signal` (and `signal-hook` for sync code) does this for
 you and hands you an ordinary async stream.
+
+**Registering is permanent.** The first `signal(kind)` or `ctrl_c()` for a
+signal replaces its default action for the rest of the process's life.
+Dropping the stream doesn't restore it, so a `SIGINT` that arrives after the
+listener is gone is silently swallowed and the process keeps running. Keep
+the listener alive until you exit (or restore the default yourself, as
+`die_by` below does), and never register signals from library code.
 
 ### Turn signals into messages
 
@@ -309,12 +318,13 @@ the drop-cancellation problems above, because workers get to flush data and
 record state instead of vanishing mid-`.await`.
 
 ```rust
+use std::io::Write;
+
+use nix::sys::signal::{self, SigHandler, Signal};
 use tokio::{signal::unix::{signal, SignalKind}, sync::broadcast, task::JoinSet};
 
-#[derive(Clone, Copy, Debug)]
-enum Shutdown { Interrupt, Terminate }
-
-async fn run(urls: Vec<String>) -> anyhow::Result<()> {
+/// Runs the downloads; returns the signal that stopped them, if any.
+async fn run(urls: Vec<String>) -> anyhow::Result<Option<Signal>> {
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
     let (tx, _) = broadcast::channel(8);
@@ -324,30 +334,31 @@ async fn run(urls: Vec<String>) -> anyhow::Result<()> {
         workers.spawn(download(url, tx.subscribe()));
     }
 
-    let mut interrupts = 0;
+    let mut stopped_by = None;
     loop {
         tokio::select! {
             res = workers.join_next() => match res {
                 Some(Ok(Ok(()))) => {}
                 Some(Ok(Err(e))) => tracing::error!(error = %e, "download failed"),
                 Some(Err(e)) => tracing::error!(error = %e, "download task panicked"),
-                None => return Ok(()), // every worker finished
+                None => return Ok(stopped_by), // every worker finished
             },
             _ = sigint.recv() => {
-                interrupts += 1;
-                if interrupts > 1 {
-                    std::process::exit(130); // second Ctrl-C: cleanup is stuck, bail
+                if stopped_by == Some(Signal::SIGINT) {
+                    die_by(Signal::SIGINT); // second Ctrl-C: cleanup is stuck, bail
                 }
-                let _ = tx.send(Shutdown::Interrupt);
+                stopped_by = Some(Signal::SIGINT);
+                let _ = tx.send(Signal::SIGINT);
             }
             _ = sigterm.recv() => {
-                let _ = tx.send(Shutdown::Terminate);
+                stopped_by.get_or_insert(Signal::SIGTERM);
+                let _ = tx.send(Signal::SIGTERM);
             }
         }
     }
 }
 
-async fn download(url: String, mut shutdown: broadcast::Receiver<Shutdown>) -> anyhow::Result<()> {
+async fn download(url: String, mut shutdown: broadcast::Receiver<Signal>) -> anyhow::Result<()> {
     tokio::select! {
         res = fetch_to_disk(&url) => res,
         _ = shutdown.recv() => {
@@ -356,6 +367,24 @@ async fn download(url: String, mut shutdown: broadcast::Receiver<Shutdown>) -> a
             flush_and_mark_interrupted(&url).await
         }
     }
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    if let Some(sig) = run(std::env::args().skip(1).collect()).await? {
+        die_by(sig); // cleaned up; now exit the way the signal would have
+    }
+    Ok(())
+}
+
+/// Exit the way the signal's default action would have, so the parent sees
+/// "killed by SIGINT" rather than a normal exit.
+fn die_by(sig: Signal) -> ! {
+    let _ = std::io::stdout().flush();
+    // SAFETY: nothing else is touching signal dispositions while we exit.
+    let _ = unsafe { signal::signal(sig, SigHandler::SigDfl) };
+    let _ = signal::raise(sig);
+    std::process::exit(128 + sig as i32) // only reached if the signal is blocked
 }
 ```
 
@@ -367,8 +396,15 @@ Notes:
 - **Handle `SIGTERM` as well as `SIGINT`.** Services mostly get `SIGTERM`.
   `tokio::signal::ctrl_c()` alone misses it.
 - **Double Ctrl-C:** the first one starts a clean shutdown; the second exits
-  immediately, on the assumption that cleanup is stuck. Exit code 130 is
-  128 + `SIGINT`, the shell convention.
+  immediately, on the assumption that cleanup is stuck.
+- **Die by the signal; don't just exit 130.** After a caught Ctrl-C, bash
+  checks *how* the child ended. A child that exits normally, even with 130
+  (128 + `SIGINT`), is assumed to have handled the interrupt, and the script
+  carries on: `for f in *; do mytool "$f"; done` moves on to the next file
+  instead of stopping. `die_by` restores the default action and re-raises the
+  signal, so the parent sees a death by `SIGINT` and the loop stops. Both
+  behaviors were checked by running the loop and sending `SIGINT` to its
+  process group.
 - If workers only need "stop now" and not *which* signal arrived,
   `tokio_util::sync::CancellationToken` is a lighter alternative to the
   broadcast channel.
@@ -380,32 +416,115 @@ Ctrl-C doesn't signal one process. It signals the terminal's foreground
 `cargo` and every `rustc` under it. You can signal a group yourself with a
 negative PID: `kill -INT -<pgid>`.
 
+`kill <pid>`, `docker stop` and Kubernetes don't do that: they signal **one**
+process. So for children that share your group:
+
+- Ctrl-C reaches them directly, at the same moment it reaches you. Don't also
+  forward `SIGINT`: each child would get two, and a child with double-Ctrl-C
+  handling bails immediately.
+- `SIGTERM` reaches only you. Forward it, or the children carry on after you
+  exit. (Checked: a child kept running after its parent was killed by PID,
+  and died when the signal went to the group.)
+
 If you spawn children that spawn their own children, put each in its own group
-so you can signal the whole subtree at once:
+so you can signal the whole subtree at once. The catch: **process groups don't
+nest.** Once a child is in its own group, the terminal's Ctrl-C no longer
+reaches it. **You** now have to forward signals (`SIGINT`, `SIGTERM`,
+`SIGQUIT`, and job control `SIGTSTP`/`SIGCONT`). The broadcast channel above is
+the natural place: each worker forwards to the group it owns, and keeps
+waiting until the child exits:
 
 ```rust
-let child = tokio::process::Command::new("cargo")
-    .arg("build")
-    .process_group(0) // new group, id = child's pid
-    .spawn()?;
+use anyhow::Context;
+use nix::{sys::signal::{killpg, Signal}, unistd::Pid};
+use tokio::sync::broadcast::{self, error::RecvError};
 
-fn forward(child: &tokio::process::Child, sig: nix::sys::signal::Signal) -> nix::Result<()> {
-    let pgid = nix::unistd::Pid::from_raw(child.id().expect("running") as i32);
-    nix::sys::signal::killpg(pgid, sig)
+async fn run_child(
+    mut cmd: tokio::process::Command,
+    mut signals: broadcast::Receiver<Signal>,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let mut child = cmd.process_group(0).spawn().context("spawning child")?; // group id = child pid
+    let pgid = Pid::from_raw(child.id().context("child already reaped")? as i32);
+    loop {
+        tokio::select! {
+            status = child.wait() => return Ok(status?),
+            msg = signals.recv() => match msg {
+                // Forward and keep waiting: the child decides when it's done.
+                Ok(sig) => { let _ = killpg(pgid, sig); }
+                Err(RecvError::Lagged(_)) => {}
+                // The sender is gone. recv() would now return Closed
+                // immediately on every call and spin this loop.
+                Err(RecvError::Closed) => return Ok(child.wait().await?),
+            },
+        }
+    }
 }
 ```
 
-The catch: **process groups don't nest.** Once a child is in its own group,
-the terminal's Ctrl-C no longer reaches it. **You** now have to forward
-signals (`SIGINT`, `SIGTERM`, `SIGQUIT`, and job control `SIGTSTP`/`SIGCONT`).
-The broadcast channel above is the natural place: each worker forwards to the
-group it owns.
+Two things make this loop correct:
+
+- **The select is in a loop, and the work survives it.** A signal is a
+  message to act on, not an order to drop the work. `child.wait()` is
+  cancel-safe, so making a fresh one each iteration is fine. A future that
+  isn't (a download holding buffered data) must be created once before the
+  loop and polled by reference, or every signal restarts it:
+  `let op = fetch_to_disk(&url); tokio::pin!(op);` then `res = &mut op =>`.
+- **`broadcast::Receiver::recv` errors are part of the protocol.** `Lagged`
+  means messages were skipped; `Closed` means the sender is gone, and every
+  later `recv()` returns at once. Matching `Err(_)` with a `continue` turns
+  the loop into a busy spin.
 
 Forwarding job control lets you do something most tools don't: on `SIGTSTP`
 pause your timeout clocks, and on `SIGCONT` resume them, so a suspended run
 doesn't time out. (Once you catch `SIGTSTP`, the default stop no longer
 happens. After forwarding it, stop yourself with `SIGSTOP`, which can't be
 caught.)
+
+### Containers: PID 1 ignores signals it doesn't handle
+
+In a container your binary is usually PID 1, and the kernel doesn't apply
+default actions to PID 1: a signal with no handler is simply dropped. A
+binary that never registers `SIGTERM` therefore ignores `docker stop` and
+Kubernetes until they `SIGKILL` it after the grace period (10s in Docker, 30s
+by default in Kubernetes), with no cleanup at all. Measured: `docker stop` on a
+plain `sleep` took 10.3s; with `--init` it took 0.2s. Handle `SIGTERM` as
+above, or run under an init (`docker run --init`, `tini`), which also reaps
+zombie children.
+
+### Pipes: SIGPIPE is ignored, so `println!` panics
+
+Rust starts every program with `SIGPIPE` ignored. When the reader of a pipe
+exits early, as in `mytool | head -1`, writes fail with `BrokenPipe` instead
+of quietly killing the process, and `println!` turns that into a panic
+(`failed printing to stdout: Broken pipe`, exit 101). CLIs that print JSON
+for pipelines hit this constantly. Write through a locked stdout and treat a
+broken pipe as a normal exit:
+
+```rust
+use std::io::Write;
+
+use anyhow::Context;
+
+fn print_rows(rows: &[serde_json::Value]) -> anyhow::Result<()> {
+    let mut out = std::io::stdout().lock();
+    for row in rows {
+        writeln!(out, "{row}").context("writing to stdout")?;
+    }
+    Ok(())
+}
+
+fn is_broken_pipe(e: &anyhow::Error) -> bool {
+    e.root_cause()
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe)
+}
+
+// in main: Err(e) if is_broken_pipe(&e) => return ExitCode::SUCCESS,
+```
+
+Restoring the default with `signal(Signal::SIGPIPE, SigHandler::SigDfl)` at the
+top of `main` also works for a pure CLI. Never do it in a service: writing to a
+socket whose peer has gone would then kill the whole server.
 
 ## Review checklist
 
@@ -422,6 +541,11 @@ When writing or reviewing async code, ask at every `.await`:
 - [ ] Are `SIGTERM` and `SIGINT` handled by messaging workers to wind down,
       not by dropping them?
 - [ ] If children run in their own process groups, are signals forwarded?
+      If they share yours, is `SIGTERM` forwarded (and `SIGINT` not)?
+- [ ] After a signal-driven shutdown, does the process die by the signal
+      (`die_by`) rather than exit normally?
+- [ ] Does a `select!` loop over `broadcast::recv` handle `Closed`?
+- [ ] Does a CLI that writes to stdout survive `| head -1`?
 
 ## Further reading
 
@@ -433,7 +557,10 @@ When writing or reviewing async code, ask at every `.await`:
 - Rain, "Beyond Ctrl-C: the dark corners of Unix signal handling", RustConf
   2023: [video](https://www.youtube.com/watch?v=zhbkp_Fzqoo). The source of
   the signals section. The talk links a download-manager demo repo with
-  exercises.
+  exercises. The exit-status, PID 1 and SIGPIPE notes go beyond the talk and
+  were checked by experiment.
+- Martin Cracauer, "Proper handling of SIGINT/SIGQUIT": why a program that
+  catches `SIGINT` must re-raise it after cleanup.
 - `cancel-safe-futures` crate: cancel-safe alternatives to common combinators,
   including a lock-and-update mutex that poisons itself if cancelled partway.
 - Tokio docs: the "Cancel safety" section on each method, and the `select!`
