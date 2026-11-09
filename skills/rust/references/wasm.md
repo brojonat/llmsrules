@@ -12,7 +12,8 @@ and debug, so it needs a reason:
 - **One codebase, two targets.** Ratzilla (Orhun Parmaksız, FOSDEM 2025) runs
   Ratatui terminal apps in the browser by swapping the backend: the widgets,
   the draw loop and the event handling stay the same, and the backend renders
-  cells as DOM `<span>`s or onto a canvas. The same goes for domain logic: the
+  cells as DOM `<span>`s or onto a canvas (see [`ratzilla.md`](ratzilla.md)).
+  The same goes for domain logic: the
   serde types, validation and parsers your axum service uses can run
   client-side unchanged.
 - **No JavaScript toolchain.** No npm, no bundler config, no `package.json`.
