@@ -382,22 +382,22 @@ uv run my-cli foo do-something
 Bayesian experimentation platform with PyMC:
 
 - PyMC for Bayesian inference with ArviZ for diagnostics
-- MLflow for experiment tracking (via docker-compose)
+- MLflow for experiment tracking (optional Garage S3 artifact store via docker compose)
 - FastAPI server for experiment management API
 - Click CLI for experiment operations
 - DuckDB/Ibis for data storage
 - `structlog` for structured logging
-- tmux-based dev session management
+- mise tasks, including a tmux dev session
 
 ```bash
 cookiecutter path/to/project-templates/python-bayesian-experiment
 cd my-experiment
 
 # Install dependencies
-uv sync --all-extras
+mise run setup
 
 # Start dev session (API server + MLflow UI in tmux)
-make start-dev
+mise run dev:tmux
 
 # CLI commands
 uv run my-experiment experiments list
@@ -737,9 +737,9 @@ project-templates/
     └── {{cookiecutter.project_slug}}/
         ├── .gitignore
         ├── AGENTS.md
-        ├── Makefile
         ├── README.md
-        ├── docker-compose.yaml       # MLflow + MinIO services
+        ├── docker-compose.yaml       # MLflow server + Garage (S3)
+        ├── mise.toml
         ├── pyproject.toml
         ├── src/
         │   └── {{cookiecutter.package_name}}/
@@ -1571,7 +1571,7 @@ The validation script tests:
 | `go-service`     | `make help`, `go mod tidy`, `make build`, CLI `--help`, server `/healthz` |
 | `python-service` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, server `/healthz` |
 | `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
-| `python-bayesian-experiment` | `make help`, `uv sync`, `make test`, `make lint`, CLI `--help`, `experiments --help`, server `/healthz` |
+| `python-bayesian-experiment` | `mise tasks`, `mise run setup`, `mise run test`, `mise run lint`, CLI `--help`, `experiments --help`, server `/healthz` |
 | `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/`go.sum`/README/`.gitignore`, builds with no tidy step, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
 | `python-datastar-minimal` | file set is exactly `main.py`/README/`.gitignore`, PEP 723 block present, `./main.py` serves the page, `POST /add` lands on the SSE read stream |
 | `python-warehouse-dashboard` | `mise tasks` (when installed), `uv sync`, CLI `--help`, `generate` + `build`, a second build skips, ruff, `pytest`, server renders the dashboard, `POST /filter/toggle` lands on the session's SSE stream, `/healthz`, `/metrics`, `/admin` |

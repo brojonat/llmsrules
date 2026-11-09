@@ -326,11 +326,12 @@ def validate_bayesian(project_dir: Path) -> None:
     """Validate python-bayesian-experiment template."""
     section("Validating python-bayesian-experiment")
 
-    run_with_output("make help", cwd=project_dir)
-    success("make help works")
+    run_with_output(["mise", "trust", "--quiet", "."], cwd=project_dir)
+    run_with_output(["mise", "tasks"], cwd=project_dir)
+    success("mise tasks lists the front door")
 
-    run_with_output(["uv", "sync", "--all-extras"], cwd=project_dir)
-    success("uv sync --all-extras works")
+    run_with_output(["mise", "run", "setup"], cwd=project_dir)
+    success("mise run setup works")
 
     run_with_output(["uv", "run", "test-bayesian", "--help"], cwd=project_dir)
     success("CLI --help works")
@@ -338,11 +339,11 @@ def validate_bayesian(project_dir: Path) -> None:
     run_with_output(["uv", "run", "test-bayesian", "experiments", "--help"], cwd=project_dir)
     success("CLI experiments --help works")
 
-    run_with_output("make test", cwd=project_dir)
-    success("make test works")
+    run_with_output(["mise", "run", "test"], cwd=project_dir)
+    success("mise run test works")
 
-    run_with_output("make lint", cwd=project_dir)
-    success("make lint works")
+    run_with_output(["mise", "run", "lint"], cwd=project_dir)
+    success("mise run lint works")
 
     # Brief server test
     log("Starting server briefly...")

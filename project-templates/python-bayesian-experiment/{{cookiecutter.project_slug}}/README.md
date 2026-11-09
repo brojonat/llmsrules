@@ -5,11 +5,11 @@
 ## Quick Start
 
 ```bash
-# Install dependencies
-uv sync --all-extras
+# Install dependencies (mise is the front door: `mise tasks` lists everything)
+mise run setup
 
-# Run the API server
-make run-server
+# Run the API server (hot reload, tees to logs/server.log)
+mise run dev
 
 # In another terminal, run CLI commands
 {{cookiecutter.project_slug}} experiments list
@@ -20,16 +20,19 @@ make run-server
 
 ```bash
 # Start dev session (API server + MLflow UI in tmux)
-make start-dev
+mise run dev:tmux
 
 # Run tests
-make test
+mise run test
 
 # Run linter
-make lint
+mise run lint
 
 # Format code
-make format
+mise run fmt
+
+# Optional: MLflow server + Garage (S3) in Docker
+mise run services
 ```
 
 ## Project Structure
@@ -49,8 +52,8 @@ make format
 │   │   └── store.py            # Experiment store
 │   └── schemas.py              # Pydantic schemas
 ├── tests/
-├── docker-compose.yaml         # MLflow + MinIO services
-├── Makefile
+├── docker-compose.yaml         # MLflow server + Garage (S3)
+├── mise.toml                   # Tasks: mise tasks
 └── pyproject.toml
 ```
 

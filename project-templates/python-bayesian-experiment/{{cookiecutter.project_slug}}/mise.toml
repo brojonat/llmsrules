@@ -1,0 +1,71 @@
+# mise is the front door: `mise tasks` lists everything, `mise run <task>`.
+# Extra arguments are appended to a task's command; tasks that tee wrap the
+# command in a function so appended args land on the command, not on tee.
+
+[tools]
+uv = "latest"
+
+[env]
+# Copy .env.server.example to .env.server (gitignored); loaded if present.
+_.file = { path = ".env.server", redact = false }
+
+[tasks.setup]
+description = "Install dependencies (including dev) into .venv"
+run = "uv sync --all-extras"
+
+[tasks.dev]
+description = "Run the API server with hot reload on :8000, tee to logs/server.log"
+run = 'mkdir -p logs; f() { uv run uvicorn {{cookiecutter.package_name}}.server.main:app --host 0.0.0.0 --port 8000 --reload "$@" 2>&1 | tee -i logs/server.log; }; f'
+
+[tasks.mlflow]
+description = "Run the MLflow UI on :5000, tee to logs/mlflow.log"
+run = 'mkdir -p logs; uv run mlflow ui --backend-store-uri "${MLFLOW_TRACKING_URI:-sqlite:///mlflow.db}" --host 127.0.0.1 --port 5000 2>&1 | tee -i logs/mlflow.log'
+
+[tasks."dev:tmux"]
+description = "Start a tmux session with the API server and MLflow UI"
+run = """
+tmux new-session -d -s {{cookiecutter.project_slug}} -n mlflow
+tmux send-keys -t {{cookiecutter.project_slug}}:mlflow 'mise run mlflow' C-m
+tmux new-window -t {{cookiecutter.project_slug}} -n api
+tmux send-keys -t {{cookiecutter.project_slug}}:api 'mise run dev' C-m
+echo "Attach with: tmux attach -t {{cookiecutter.project_slug}}" >&2
+"""
+
+[tasks."dev:tmux:stop"]
+description = "Stop the tmux dev session"
+run = "tmux kill-session -t {{cookiecutter.project_slug}} || true"
+
+[tasks.test]
+description = "Run tests"
+run = 'f() { uv run pytest "$@"; }; f'
+
+[tasks.lint]
+description = "ruff check + format check"
+run = [
+  "uv run ruff check src/ tests/",
+  "uv run ruff format --check src/ tests/",
+]
+
+[tasks.fmt]
+description = "ruff format + fix"
+run = [
+  "uv run ruff format src/ tests/",
+  "uv run ruff check --fix src/ tests/",
+]
+
+[tasks.services]
+description = "Start the docker compose services (MLflow server, Garage S3)"
+run = "docker compose up -d --wait"
+
+[tasks."services:down"]
+description = "Stop the docker compose services (data volumes are kept)"
+run = "docker compose down"
+
+[tasks.clean]
+description = "Remove the venv, caches, build artifacts, MLflow runs and logs"
+run = '''
+root="${MISE_PROJECT_ROOT:?}"
+rm -rf "$root/.venv" "$root/.pytest_cache" "$root/.ruff_cache" "$root/dist" \
+  "$root"/*.egg-info "$root"/src/*.egg-info "$root/mlruns" "$root/mlflow.db" "$root"/logs/*.log
+find "$root/src" "$root/tests" -type d -name __pycache__ -prune -exec rm -rf {} +
+'''
