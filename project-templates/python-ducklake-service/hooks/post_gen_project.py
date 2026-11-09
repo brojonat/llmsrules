@@ -18,7 +18,7 @@ def main():
     print("    cp .env.example .env   # then set JWT_SECRET")
     print("    mise run setup")
     print()
-    print("  Start local services (Postgres + SeaweedFS as S3):")
+    print("  Start local services (Postgres + Garage as S3):")
     print()
     print("    mise run services")
     print()

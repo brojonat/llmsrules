@@ -14,8 +14,8 @@ description = "Install dependencies (including dev) into .venv"
 run = "uv sync --all-extras"
 
 [tasks.services]
-description = "Start Postgres (lake catalog + app db) and SeaweedFS (S3) in Docker"
-run = "docker compose up -d --wait postgres s3 && docker compose run --rm createbucket"
+description = "Start Postgres (lake catalog + app db) and Garage (S3) in Docker"
+run = "docker compose up -d --wait postgres s3"
 
 [tasks."services:down"]
 description = "Stop the Docker services (data volumes are kept)"

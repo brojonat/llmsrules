@@ -11,14 +11,14 @@
 └─────────────┘ SSE └──────┬───────┘     └─────┬─────┘
                            │                   │
                     ┌──────▼───────┐     ┌─────▼──────┐
-                    │  PostgreSQL  │     │ S3 (Seaweed│
-                    │  (app state) │     │ FS locally)│
+                    │  PostgreSQL  │     │     S3     │
+                    │  (app state) │     │  (Garage)  │
                     └──────────────┘     └────────────┘
 ```
 
 **Two databases, one application:**
 
-- **DuckLake** (via DuckDB + Ibis): Analytics data lake with time travel, snapshots, and ACID transactions. Catalog metadata stored in PostgreSQL; Parquet data files stored in S3 (SeaweedFS for local dev).
+- **DuckLake** (via DuckDB + Ibis): Analytics data lake with time travel, snapshots, and ACID transactions. Catalog metadata stored in PostgreSQL; Parquet data files stored in S3 (Garage for local dev).
 - **PostgreSQL** (via psycopg2): Application state -- users, sessions, tags, entity associations, and migration tracking.
 
 ## Quick Start
@@ -26,7 +26,7 @@
 ```bash
 cp .env.example .env    # then set JWT_SECRET: openssl rand -hex 32
 mise run setup          # uv sync
-mise run services       # Postgres + SeaweedFS in Docker, creates the bucket
+mise run services       # Postgres + Garage in Docker, with the bucket
 mise run migrate        # lake + app migrations
 mise run dev            # hot reload, tee to logs/server.log
 ```
@@ -107,7 +107,7 @@ renders the first page load and every later patch.
 ├── static/js/components.js  # d3 charts as Datastar Rocket components
 ├── tests/                   # pytest suite
 ├── k8s/prod/                # Kustomize manifests
-├── docker-compose.yml       # Local dev: Postgres + SeaweedFS (S3)
+├── docker-compose.yml       # Local dev: Postgres + Garage (S3)
 ├── scripts/deploy.sh        # Build, push, kustomize apply
 └── mise.toml                # All common tasks
 ```
@@ -143,13 +143,14 @@ All environment variables use the `{{cookiecutter.package_name_upper}}_` prefix.
 
 **Required:**
 - `{{cookiecutter.package_name_upper}}_JWT_SECRET` - JWT signing key
-- `{{cookiecutter.package_name_upper}}_S3_ENDPOINT` - S3 endpoint; an `http://` prefix turns TLS off (local SeaweedFS)
+- `{{cookiecutter.package_name_upper}}_S3_ENDPOINT` - S3 endpoint; an `http://` prefix turns TLS off (local Garage)
 - `{{cookiecutter.package_name_upper}}_S3_BUCKET` - S3 bucket for data files
 - `{{cookiecutter.package_name_upper}}_S3_ACCESS_KEY` / `S3_SECRET_KEY` - S3 credentials
 - `{{cookiecutter.package_name_upper}}_APP_DB_DSN` - PostgreSQL connection string (libpq format)
 
 **Optional:**
 - `{{cookiecutter.package_name_upper}}_CATALOG_DSN` - DuckLake catalog location (default: local file)
+- `{{cookiecutter.package_name_upper}}_S3_REGION` - region requests are signed for (default `us-east-1`, which local Garage is configured to match)
 - `{{cookiecutter.package_name_upper}}_DEV_MODE` - Auto-authenticate all requests
 - `{{cookiecutter.package_name_upper}}_ENCRYPTION_ENABLED` - Encrypt Parquet files at rest
 

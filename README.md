@@ -54,7 +54,7 @@ like to structure my projects.
 | `python-warehouse-dashboard` | Data dashboard + assistant | Synthetic feed -> DuckDB/Parquet read models, per-session Datastar dashboard, d3 Rocket charts, LLM assistant with SQL sandbox + evals, `/admin`, mise |
 | `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
 | `python-cli`                 | Python CLI tool         | PEP 723 simple script + structured package with subcommands           |
-| `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2, live Datastar dashboard (re-rendered per lake snapshot), d3 Rocket charts, Postgres, SeaweedFS (S3), mise |
+| `python-ducklake-service`    | Analytics service       | DuckLake + DuckDB via Ibis, FastAPI + Jinja2, live Datastar dashboard (re-rendered per lake snapshot), d3 Rocket charts, Postgres, Garage (S3), mise |
 | `python-bayesian-experiment` | Bayesian experiments    | PyMC + ArviZ, MLflow tracking, FastAPI, Click CLI, tmux dev session   |
 | `python-bayes-loop`          | Agent-built Bayesian models | Hand an agent a dataset + problem; it builds a PyMC model (new-model skill, model contract) on a DuckDB belt over Quack (compiled once to JAX, ChEES/NUTS), feeding data the way you ask (all at once or in chunks, each fit on everything so far), while you watch a read-only Datastar dashboard (the agent's journal, figures) and steer in the agent's chat; tmux loop, local, mise |
 

@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     s3_bucket: str
     s3_access_key: SecretStr
     s3_secret_key: SecretStr
+    # Requests are signed for this region; Garage and AWS reject a mismatch.
+    s3_region: str = "us-east-1"
 
     # Auth
     jwt_secret: SecretStr = Field(default=SecretStr("change-me-in-production"))

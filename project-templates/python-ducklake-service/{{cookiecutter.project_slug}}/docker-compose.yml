@@ -15,32 +15,47 @@ services:
       timeout: 5s
       retries: 5
 
-  # S3-compatible object storage for the lake's Parquet files. SeaweedFS with
-  # no identities configured accepts any access key, so the .env.example
-  # credentials work as-is. (MinIO no longer publishes community images.)
+  # S3-compatible object storage for the lake's Parquet files. Garage's
+  # single-node mode lays out the cluster and creates the key and bucket on
+  # first start (and skips them after), so there is no setup step. The key
+  # and bucket match .env.example; Garage wants a key id of 8+ characters
+  # and a secret of 16+.
   s3:
-    image: chrislusf/seaweedfs:4.50
-    command: server -s3 -dir=/data
+    image: dxflrs/garage:v2.5.0
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
     ports:
-      - "8333:8333"
+      - "3900:3900"
+    environment:
+      GARAGE_RPC_SECRET: "0000000000000000000000000000000000000000000000000000000000000000"
+      GARAGE_DEFAULT_ACCESS_KEY: "GKdevaccesskey"
+      GARAGE_DEFAULT_SECRET_KEY: "dev-secret-key-not-for-prod"
+      GARAGE_DEFAULT_BUCKET: "lake-data"
+    configs:
+      - source: garage
+        target: /etc/garage.toml
     volumes:
-      - s3data:/data
+      - s3data:/var/lib/garage
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:8333/healthz"]
-      interval: 5s
+      # The image has no shell; healthy once the default bucket exists.
+      test: ["CMD", "/garage", "bucket", "info", "lake-data"]
+      interval: 2s
       timeout: 5s
-      retries: 10
+      retries: 15
 
-  createbucket:
-    image: chrislusf/seaweedfs:4.50
-    depends_on:
-      s3:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      echo 's3.bucket.list' | weed shell -master=s3:9333 | grep -q lake-data ||
-      echo 's3.bucket.create -name lake-data' | weed shell -master=s3:9333
-      "
+configs:
+  garage:
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "sqlite"
+      replication_factor = 1
+      rpc_bind_addr = "[::]:3901"
+      rpc_public_addr = "127.0.0.1:3901"
+
+      [s3_api]
+      # Must match S3_REGION (default us-east-1).
+      s3_region = "us-east-1"
+      api_bind_addr = "[::]:3900"
 
 volumes:
   pgdata:

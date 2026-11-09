@@ -31,7 +31,7 @@ jq 'select(.level == "error")' logs/server.log
 
 **Two databases, one application:**
 
-- **DuckLake** (via DuckDB/Ibis): Analytics data lake. Catalog metadata in PostgreSQL, Parquet data in S3 (SeaweedFS locally). Accessed via `server/data/__init__.py` → `LakeConnection`.
+- **DuckLake** (via DuckDB/Ibis): Analytics data lake. Catalog metadata in PostgreSQL, Parquet data in S3 (Garage locally). Accessed via `server/data/__init__.py` → `LakeConnection`.
 - **PostgreSQL** (via psycopg2): Application state (users, sessions, tags). Accessed via `server/data/app_db.py` → `AppDB`.
 
 **Key files:**
@@ -147,7 +147,7 @@ Subcommand groups: `serve`, `migrate`, `lake {list,reset,snapshots}`, `app {rese
 ```bash
 cp .env.example .env    # set JWT_SECRET (openssl rand -hex 32)
 mise run setup
-mise run services       # Postgres + SeaweedFS (S3), creates the bucket
+mise run services       # Postgres + Garage (S3) with the bucket
 mise run migrate
 mise run dev            # tees to logs/server.log
 mise run cli lake list

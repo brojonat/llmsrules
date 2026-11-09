@@ -48,7 +48,7 @@ class LakeConnection:
         con.raw_sql(f"SET threads = {int(s.duckdb_threads)}")
         con.raw_sql("INSTALL ducklake; LOAD ducklake; INSTALL httpfs; LOAD httpfs")
 
-        # http:// endpoints (local SeaweedFS) turn TLS off; DuckDB wants the bare host.
+        # http:// endpoints (local Garage) turn TLS off; DuckDB wants the bare host.
         endpoint = s.s3_endpoint
         use_ssl = not endpoint.startswith("http://")
         endpoint = endpoint.removeprefix("http://").removeprefix("https://")
@@ -58,6 +58,7 @@ class LakeConnection:
             f"KEY_ID {_sql_str(s.s3_access_key.get_secret_value())}, "
             f"SECRET {_sql_str(s.s3_secret_key.get_secret_value())}, "
             f"ENDPOINT {_sql_str(endpoint)}, "
+            f"REGION {_sql_str(s.s3_region)}, "
             f"USE_SSL {str(use_ssl).lower()}, "
             "URL_STYLE 'path')"
         )
@@ -82,8 +83,20 @@ class LakeConnection:
             return self.con.con.execute(sql, params or []).fetchall()
 
     def execute_many(self, sql: str, rows: list[list]) -> None:
+        """Run sql once per row in one transaction, so the lake gets one snapshot.
+
+        Outside a transaction every row commits on its own: one snapshot (and,
+        past the inlining limit, one Parquet file) per row.
+        """
         with self._lock:
-            self.con.con.executemany(sql, rows)
+            raw = self.con.con
+            raw.begin()
+            try:
+                raw.executemany(sql, rows)
+                raw.commit()
+            except BaseException:
+                raw.rollback()
+                raise
 
     def snapshot_id(self) -> int:
         """Latest committed lake snapshot. It changes on every write, from any process."""
