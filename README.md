@@ -169,7 +169,7 @@ npx skills add brojonat/llmsrules
 | `statistical-process-control` | XmR / control charts: frozen limits, signal rules, derived streams |
 | `urfave-cli`       | Go CLIs with urfave/cli v3: subcommands, flags, env, completion     |
 | `datastar`         | Real-time hypermedia over SSE: the Tao, `data-*`, CQRS, Python + Go |
-| `rust`             | Rust services and CLIs; async/Tokio and cancellation correctness    |
+| `rust`             | Rust services, CLIs, wasm apps: Tokio, cancellation, signals, Trunk |
 
 ### Third-party skills I like
 
