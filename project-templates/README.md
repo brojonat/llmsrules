@@ -138,6 +138,32 @@ deployment.
 
 [tao]: https://data-star.dev/guide/the_tao_of_datastar
 
+### rust-datastar-minimal
+
+The same architecture as `go-datastar-minimal`, in Rust, with its state in
+SQLite so it shows what writing SQL looks like.
+
+```bash
+cookiecutter path/to/project-templates/rust-datastar-minimal
+cd my-realtime-app
+mise run dev   # open http://localhost:8080 in two tabs
+```
+
+`src/main.rs` holds the SQL, the state, the maud templates, four routes and
+the stream's compression; `migrations/` holds the schema, embedded in the
+binary and applied at startup. The SQL is plain strings through sqlx
+(`query_as` onto `#[derive(FromRow)]` structs, `query_scalar`, a transaction
+that inserts and trims), checked at runtime so `cargo run` is the whole
+setup; the README shows how to move to compile-time checked `query!`.
+
+Rust-specific pieces: `AppState` is all cheap-clone handles (no `Arc`); the
+SSE body is a `Stream` that axum drops when the client leaves; writes run in
+`tokio::spawn` so a disconnect can't land between commit and notify;
+SIGTERM cancels a token so open streams end and graceful shutdown finishes.
+The `datastar` crate doesn't compress, so the stream is Brotli-encoded by
+hand at lgwin 17 (about 1.6 MiB per open stream instead of about 9 MiB at
+the default window).
+
 ### python-datastar-minimal
 
 The same architecture as `go-datastar-minimal`, in Python: one file, no
@@ -608,6 +634,18 @@ project-templates/
 │       ├── go.mod                  # one require: datastar-go
 │       ├── go.sum                  # committed, so `go run .` needs no tidy
 │       └── main.go                 # state, templates, 4 routes
+├── rust-datastar-minimal/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── .gitignore, .env.example, README.md
+│       ├── Cargo.toml, Cargo.lock  # lockfile committed
+│       ├── build.rs                # rebuild when migrations/ changes
+│       ├── mise.toml
+│       ├── rust-toolchain.toml
+│       ├── migrations/
+│       │   └── 0001_messages.sql
+│       └── src/
+│           └── main.rs             # SQL, state, maud templates, 4 routes, Brotli, tests
 ├── python-datastar-minimal/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1573,6 +1611,7 @@ The validation script tests:
 | `python-cli`     | `make help`, `./simple.py` commands, `uv sync`, `uv run` commands, `make test`, `make lint` |
 | `python-bayesian-experiment` | `mise tasks`, `mise run setup`, `mise run test`, `mise run lint`, CLI `--help`, `experiments --help`, server `/healthz` |
 | `go-datastar-minimal` | file set is exactly `main.go`/`go.mod`/`go.sum`/README/`.gitignore`, builds with no tidy step, `gofmt`, `go vet`, `go run .` serves the page, `POST /add` lands on the SSE read stream |
+| `rust-datastar-minimal` | `cargo test`/`clippy`/`build` with `--locked`, rustfmt, the binary serves the page and creates the database, `POST /add` lands on the Brotli-compressed SSE stream, SIGTERM exits 0 with a stream open |
 | `python-datastar-minimal` | file set is exactly `main.py`/README/`.gitignore`, PEP 723 block present, `./main.py` serves the page, `POST /add` lands on the SSE read stream |
 | `python-warehouse-dashboard` | `mise tasks` (when installed), `uv sync`, CLI `--help`, `generate` + `build`, a second build skips, ruff, `pytest`, server renders the dashboard, `POST /filter/toggle` lands on the session's SSE stream, `/healthz`, `/metrics`, `/admin` |
 | `python-bayes-loop` | `mise tasks` (when installed), `uv sync`, CLI `--help`, ruff, `pytest` on CPU (the model contract, logp on swapped data, feed -> db -> sample over Quack, the feed cursor, the agent's journal), `simulate`, the belt run briefly on CPU fed half a file then the rest in chunks, a fit rendering with the model graph, figures in the carousel, an agent note and status on the dashboard, `/healthz`, `/metrics` |
@@ -1652,6 +1691,12 @@ uv run test-cli foo do-something
   - [x] Jinja2 renders first paint and every fragment from one `board.html`
   - [x] CQRS loop: one long-lived read, short-lived writes returning 204
   - [x] Multiplayer by construction, verified across two browser contexts
+- [x] Create rust-datastar-minimal template
+  - [x] One `main.rs`: axum, `datastar` crate, maud, sqlx on SQLite
+  - [x] Plain SQL: migrations, `query_as`/`query_scalar`, a transaction
+  - [x] CQRS loop with a `watch` version counter; writes spawned for cancel correctness
+  - [x] Brotli on the stream at lgwin 17; graceful shutdown ends open streams
+  - [x] In-process tests (stream, Brotli decode, SQL), mise dev loop
 - [x] Create go-real-time-service template
   - [x] Datastar SSE patterns: KV watch, server push, signal patches
   - [x] templ views with computation in Go view structs

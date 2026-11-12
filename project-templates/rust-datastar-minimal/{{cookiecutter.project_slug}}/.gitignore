@@ -1,0 +1,7 @@
+/target
+logs/
+.env
+# The SQLite database and its WAL files
+*.db
+*.db-shm
+*.db-wal

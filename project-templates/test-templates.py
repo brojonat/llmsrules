@@ -93,6 +93,11 @@ TEMPLATES = {
         "output": "test-rust-service",
         "vars": {"project_name": "Test Rust Service", "author": "testuser"},
     },
+    "rsminimal": {
+        "name": "rust-datastar-minimal",
+        "output": "test-rs-datastar-minimal",
+        "vars": {"project_name": "Test Rs Datastar Minimal", "author": "testuser"},
+    },
 }
 
 
@@ -877,6 +882,87 @@ def validate_rust(project_dir: Path) -> None:
     success("rust-service validation complete")
 
 
+def validate_rs_minimal(project_dir: Path) -> None:
+    """Validate rust-datastar-minimal template."""
+    section("Validating rust-datastar-minimal")
+
+    # Cargo.lock is committed, so the build resolves nothing new.
+    run_with_output("cargo test -q --locked", cwd=project_dir)
+    run_with_output("cargo clippy -q --all-targets --locked -- -D warnings", cwd=project_dir)
+    run_with_output("cargo fmt --check", cwd=project_dir)
+    success("tests, clippy and rustfmt are clean against the committed Cargo.lock")
+
+    run_with_output("cargo build -q --locked", cwd=project_dir)
+    binary = project_dir / "target" / "debug" / "test-rs-datastar-minimal"
+
+    log("Starting server briefly...")
+    env = os.environ.copy()
+    env["PORT"] = "18091"
+    env["DATABASE_URL"] = f"sqlite://{project_dir / 'validate.db'}"
+    server = subprocess.Popen(
+        [str(binary)],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    time.sleep(1)
+    stream = None
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18091/"],
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if result.returncode == 0 and 'id="board"' in result.stdout:
+            success("the binary serves the page and created the database")
+        else:
+            warn("page did not render")
+
+        # Write, then confirm the read stream carries it back.
+        subprocess.run(
+            ["curl", "-sf", "-X", "POST", "-H", "content-type: application/json",
+             "-d", '{"message":"from curl"}', "http://localhost:18091/add"],
+            capture_output=True,
+            timeout=5,
+        )
+        result = subprocess.run(
+            ["curl", "-sN", "--compressed", "-m", "2", "http://localhost:18091/updates"],
+            capture_output=True,
+            timeout=10,
+            text=True,
+        )
+        if "datastar-patch-elements" in result.stdout and "from curl" in result.stdout:
+            success("POST /add lands on the Brotli-compressed SSE read stream")
+        else:
+            warn("SSE stream did not carry the write")
+
+        # SIGTERM must end open streams, or graceful shutdown waits forever.
+        stream = subprocess.Popen(
+            ["curl", "-sN", "http://localhost:18091/updates"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(0.5)
+    except Exception:
+        warn("Server checks failed")
+    finally:
+        server.terminate()
+        try:
+            if server.wait(timeout=5) == 0:
+                success("SIGTERM shuts down cleanly with a stream open")
+            else:
+                warn(f"server exited {server.returncode} on SIGTERM")
+        except subprocess.TimeoutExpired:
+            warn("server hung on SIGTERM with a stream open")
+            server.kill()
+        if stream:
+            stream.kill()
+
+    success("rust-datastar-minimal validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -889,6 +975,7 @@ VALIDATORS = {
     "warehouse": validate_warehouse,
     "bayesloop": validate_bayes_loop,
     "rust": validate_rust,
+    "rsminimal": validate_rs_minimal,
 }
 
 
@@ -906,7 +993,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust", "rsminimal"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -922,7 +1009,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust", "rsminimal"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1034,6 +1121,12 @@ def show() -> None:
     click.echo("  mise run dev       # watchexec rebuild + restart, tees logs/serve.log")
     click.echo("  mise run test && mise run lint")
     click.echo("  cargo run -- --help")
+    click.echo()
+
+    click.echo(f"{BLUE}rust-datastar-minimal:{NC}")
+    click.echo("  mise run dev       # watchexec rebuild + restart, tees logs/serve.log")
+    click.echo("  # open http://localhost:8080 in two tabs")
+    click.echo("  mise run test && mise run lint")
     click.echo()
 
     click.echo(f"{BLUE}python-ducklake-service:{NC}")

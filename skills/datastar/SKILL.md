@@ -1144,15 +1144,18 @@ numbers look too good, that is the first thing to suspect.
 
 # Starting points
 
-Two cookiecutter templates in this repo implement the CQRS loop in one file
+Three cookiecutter templates in this repo implement the CQRS loop in one file
 each:
 
 - `project-templates/go-datastar-minimal` — Go, `datastar-go` + `html/template`,
   `go run .`
+- `project-templates/rust-datastar-minimal` — Rust, axum + `datastar` crate +
+  maud, state in SQLite through plain sqlx queries, Brotli by hand at a small
+  window, `mise run dev`
 - `project-templates/python-datastar-minimal` — Python, PEP 723 deps,
   `datastar-py` + Starlette + Jinja2, `./main.py`
 
-Both wake every stream on every write and render inside the stream: the right
+All three wake every stream on every write and render inside the stream: the right
 first version, and the one to outgrow.
 
 Two Python templates add charts as d3 Rocket components on top of the loop:
