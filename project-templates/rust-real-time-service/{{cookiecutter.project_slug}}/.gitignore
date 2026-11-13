@@ -1,0 +1,6 @@
+/target
+logs/
+.env
+# The SQLite database and its WAL files
+data/*
+!data/.gitkeep

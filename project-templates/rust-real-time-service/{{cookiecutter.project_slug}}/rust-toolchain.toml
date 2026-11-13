@@ -1,0 +1,5 @@
+# rustup reads this on every cargo/rustc call and installs what's missing, so
+# a fresh machine gets clippy, rustfmt and rust-analyzer without extra steps.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt", "rust-analyzer"]

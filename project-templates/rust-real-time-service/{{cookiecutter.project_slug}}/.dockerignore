@@ -1,0 +1,7 @@
+target/
+logs/
+data/
+.env
+.git/
+# Pins rustup components (rust-analyzer, ...) the image doesn't need.
+rust-toolchain.toml

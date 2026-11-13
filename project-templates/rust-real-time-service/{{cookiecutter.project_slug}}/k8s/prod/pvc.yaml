@@ -1,0 +1,12 @@
+# The SQLite database. ReadWriteOnce: one node, one pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{cookiecutter.project_slug}}-data
+  namespace: {{cookiecutter.k8s_namespace}}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

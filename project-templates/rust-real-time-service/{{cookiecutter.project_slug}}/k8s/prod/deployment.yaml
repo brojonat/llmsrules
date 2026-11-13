@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{cookiecutter.project_slug}}
+  namespace: {{cookiecutter.k8s_namespace}}
+spec:
+  # SQLite has one writer, so one pod. Recreate stops the old pod before the
+  # new one mounts the volume; a rolling update would deadlock on the
+  # ReadWriteOnce claim.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{cookiecutter.project_slug}}
+  template:
+    metadata:
+      labels:
+        app: {{cookiecutter.project_slug}}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534 # makes the volume writable by that user
+      containers:
+        - name: {{cookiecutter.project_slug}}
+          image: "{% raw %}{{DOCKER_REPO}}:{{GIT_COMMIT_SHA}}{% endraw %}"
+          ports:
+            - containerPort: {{cookiecutter.default_port}}
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DATABASE_URL
+              value: "sqlite:///data/app.db"
+            - name: FRAME_TICK_MS
+              value: "100"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{cookiecutter.default_port}}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{cookiecutter.default_port}}
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{cookiecutter.project_slug}}-data

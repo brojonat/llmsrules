@@ -15,7 +15,9 @@ _.file = { path = ".env", redact = false }
 
 [tasks.setup]
 description = "Install dependencies, vendor client assets, run codegen (needs network once)"
-run = "go mod tidy"
+# go.sum is committed, so this only downloads. Not `go mod tidy`: before
+# codegen it would demote templ to an indirect dependency.
+run = "go mod download"
 depends_post = ["generate", "css"]
 
 # Codegen. Both outputs are gitignored, so every task that compiles or runs the

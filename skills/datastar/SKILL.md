@@ -1068,8 +1068,26 @@ Rust specifics: the `datastar` crate does not compress, and tower-http's
 exposes no window setting, so use the `brotli` crate directly in the stream
 handler (`CompressorWriter::with_params`, flush after every event). Avoid
 quality 5–6 with lgwin 16 or below in that crate: it switches to a different
-hasher and holds about 15 MiB per encoder. Quality 5 at lgwin 17 is the sweet
-spot measured above.
+hasher and holds about 15 MiB per encoder.
+
+**Then lower the quality.** The window is only half of it: the encoder's hash
+tables grow with quality. Per stream after 300 frames, Rust `brotli` crate,
+lgwin 17:
+
+| Frame | Quality 5 | Quality 1 |
+| --- | --- | --- |
+| 1 KB | 1.4 MiB, 91 B per frame | 17 KiB, 267 B per frame |
+| 16 KB | 1.6 MiB, 1.2 KB per frame | 170 KiB, 1.7 KB per frame |
+| 64 KB | 2.2 MiB, 4.6 KB per frame | 650 KiB, 7.3 KB per frame |
+
+On a running Rust server with 300 streams on a 1 KB view, that was 1,063 KiB
+per stream at quality 5, 41 KiB at quality 1, and 29 KiB uncompressed. Go's
+encoder gains less: on 16 KB frames, quality 1 at lgwin 16 held 421 KiB
+against 972 KiB at quality 6, for about twice the bytes
+(`datastar.WithBrotliLevel(1)`). Open streams are what a crowd multiplies, and
+memory per stream is usually the binding limit, so start at quality 1 and
+raise it only when bandwidth costs more. The Rust templates use quality 1,
+lgwin 17.
 
 ---
 
@@ -1122,7 +1140,8 @@ numbers look too good, that is the first thing to suspect.
   200:1 on repetitive fat-morph HTML. This is the single biggest win. Each
   connection holds its own compression context, so set the Brotli window to
   about twice the largest frame (lgwin 16–18) rather than the 4 MiB default,
-  and measure memory per open stream with compression on (see Gotchas).
+  consider quality 1, and measure memory per open stream with compression on
+  (see Gotchas).
 - **No idle or read timeouts** anywhere on the path — server, ingress, LB.
 - **Disable proxy buffering** (`X-Accel-Buffering: no`, or the equivalent).
 - **Budget one open connection per browser tab.** A long-lived request per
@@ -1168,6 +1187,13 @@ snapshot).
 newest frame, and overruns are logged and exported to Prometheus. It shows a
 per-session view (todos, fed by a NATS KV bucket watcher) and a shared sampled
 view (monitor, `frames.Every`), with templ, metrics, and k8s manifests.
+
+`project-templates/rust-real-time-service` is the same design in Rust: axum,
+maud, SQLite through sqlx, and `src/frames.rs`, where each view's frame slot is
+a `tokio::sync::watch` channel (one value, newest wins, unsubscribe by
+dropping the receiver) and the tick is an `interval` with
+`MissedTickBehavior::Skip`. Brotli at quality 1 keeps an open stream at about
+41 KiB, so 300 streams fit in a 21 MiB server.
 
 # References
 

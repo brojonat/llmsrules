@@ -16,3 +16,21 @@ cargo command in this repo installs it.
 Current rustaceanvim refuses to load on Neovim 0.11 ("requires Neovim 0.12
 or above"), which looks like rust-analyzer silently not attaching. Use
 Neovim 0.12+.
+
+## `sqlite::memory:` is a separate database per connection
+
+A pool of in-memory connections runs migrations on one and queries another
+("no such table"). `db::test_pool()` uses `max_connections(1)` for this reason.
+
+## New migrations need a rebuild
+
+`sqlx::migrate!()` embeds `migrations/` at compile time, and cargo doesn't
+watch that directory on its own; `build.rs` tells it to. Without it, a new
+`.sql` file is silently missing from the binary.
+
+## Graceful shutdown waits for every open request
+
+axum's `with_graceful_shutdown` stops accepting and then waits. A request that
+never finishes (an SSE stream, a long poll) holds shutdown open until the
+orchestrator kills the pod. Give such handlers a cancellation token to select
+on, and cancel it from the shutdown future.

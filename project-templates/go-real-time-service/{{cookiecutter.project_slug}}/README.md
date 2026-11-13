@@ -49,7 +49,7 @@ If your editor reports undefined symbols right after cloning, run
 ```bash
 cp .env.example .env
 mise install      # Go and golangci-lint, pinned in mise.toml
-mise run setup    # go mod tidy, download client assets, generate, build css
+mise run setup    # go mod download, fetch client assets, generate, build css
 mise run dev      # server + stylesheet watcher; Ctrl-C stops both
 ```
 

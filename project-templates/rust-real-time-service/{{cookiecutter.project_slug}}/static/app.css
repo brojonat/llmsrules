@@ -1,0 +1,32 @@
+/* Plain CSS, no build step. Served at /static/app.css. */
+:root {
+  --fg: #1d2021; --muted: #6b6f72; --bg: #fbfbf9; --card: #fff; --line: #e3e3de; --accent: #3465a4;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e8e6e1; --muted: #9a9892; --bg: #1b1c1d; --card: #242526; --line: #35373a; --accent: #8ab4f8; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+nav { display: flex; gap: 1rem; align-items: baseline; padding: .75rem 1rem; border-bottom: 1px solid var(--line); }
+nav strong { margin-right: auto; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+main { max-width: 48rem; margin: 0 auto; padding: 1rem; }
+.hint { color: var(--muted); font-size: .875rem; }
+.big { font-size: 1.75rem; margin: .25rem 0; font-variant-numeric: tabular-nums; }
+/* 16px minimum, or iOS Safari zooms the page when an input is focused. */
+input, button { font-size: 1rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: .375rem; background: var(--card); color: var(--fg); }
+button { cursor: pointer; }
+form { display: flex; gap: .5rem; margin: 1rem 0; }
+form input { flex: 1; }
+.todos { list-style: none; padding: 0; }
+.todos li { display: flex; align-items: center; gap: .5rem; padding: .375rem 0; border-bottom: 1px solid var(--line); }
+.todos li span { flex: 1; }
+.todos li.done span { text-decoration: line-through; color: var(--muted); }
+.todos button { border: none; background: none; padding: .25rem .5rem; }
+#todos footer { display: flex; justify-content: space-between; align-items: center; margin-top: .75rem; color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: .5rem; padding: .75rem 1rem; }
+.card h2 { font-size: .875rem; color: var(--muted); margin: 0; font-weight: 500; }
+meter { width: 100%; }

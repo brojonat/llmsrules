@@ -1,0 +1,30 @@
+[package]
+name = "{{cookiecutter.project_slug}}"
+version = "0.1.0"
+edition = "2024"
+description = "{{cookiecutter.description}}"
+authors = ["{{cookiecutter.author}}"]
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+axum-extra = { version = "0.12", features = ["cookie"] }
+brotli = "9"
+clap = { version = "4", features = ["derive", "env"] }
+datastar = { version = "0.4", features = ["axum"] }
+futures-util = "0.3"
+maud = { version = "0.27", features = ["axum"] }
+prometheus-client = "0.26"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+sysinfo = "0.40"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

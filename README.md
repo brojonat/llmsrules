@@ -49,8 +49,9 @@ like to structure my projects.
 | `go-datastar-minimal`        | Real-time app, one file | Datastar over SSE, `datastar-go` SDK, no build step, `go run .`      |
 | `go-real-time-service`       | Go real-time web app    | Datastar over SSE, tick-based frame renderer, templ, embedded NATS JetStream, Tailwind/DaisyUI |
 | `go-local-app`               | Local app in a browser  | One `go install` binary: urfave/cli, embedded NATS JetStream KV, Datastar over SSE, `html/template`, diagnostics dashboard, `/metrics` |
-| `rust-service`               | Rust web service (stub) | axum on tokio, clap, tracing, `prometheus-client` `/metrics`, `/healthz`, watchexec dev loop, mise; no Docker/k8s yet |
-| `rust-datastar-minimal`     | Real-time app, one file | Datastar over SSE, axum, maud, plain SQL on SQLite via sqlx, Brotli with a small window, `mise run dev` |
+| `rust-service`               | Rust web service        | axum on tokio, clap (`serve`, `token`), plain SQL on SQLite via sqlx, JWT auth extractor, thiserror `AppError`, request IDs, `/metrics` histogram, watchexec dev loop, ~10 MB scratch image, k8s, mise |
+| `rust-datastar-minimal`      | Real-time app, one file | Datastar over SSE, axum, maud, plain SQL on SQLite via sqlx, Brotli at quality 1 and a small window, `mise run dev` |
+| `rust-real-time-service`     | Rust real-time web app  | Datastar over SSE, tick-based frame renderer on `watch` channels, maud, SQLite via sqlx, Brotli at ~41 KiB per stream, load-test task, ~10 MB scratch image, k8s, mise |
 | `python-datastar-minimal`    | Real-time app, one file | Datastar over SSE, PEP 723 deps, no build step, `./main.py`          |
 | `python-warehouse-dashboard` | Data dashboard + assistant | Synthetic feed -> DuckDB/Parquet read models, per-session Datastar dashboard, d3 Rocket charts, LLM assistant with SQL sandbox + evals, `/admin`, mise |
 | `python-service`             | Python microservice     | FastAPI, Click CLI, uv, structlog, Prometheus metrics                 |
@@ -60,11 +61,11 @@ like to structure my projects.
 | `python-bayes-loop`          | Agent-built Bayesian models | Hand an agent a dataset + problem; it builds a PyMC model (new-model skill, model contract) on a DuckDB belt over Quack (compiled once to JAX, ChEES/NUTS), feeding data the way you ask (all at once or in chunks, each fit on everything so far), while you watch a read-only Datastar dashboard (the agent's journal, figures) and steer in the agent's chat; tmux loop, local, mise |
 
 All templates include: a task runner, Dockerfile, K8s manifests,
-`.gitignore`, `AGENTS.md`, `CHANGELOG.md` — except the two
+`.gitignore`, `AGENTS.md`, `CHANGELOG.md` — except the three
 `*-datastar-minimal` templates, which are deliberately a single source file
-plus a README (the Rust one adds a migration, a `mise.toml` and a lockfile),
-and `rust-service`, a stub that has no Dockerfile or K8s manifests yet. The
-task runner is `mise.toml` in `python-warehouse-dashboard`,
+plus a README (the Rust one adds a migration, a `mise.toml` and a lockfile).
+The task runner is `mise.toml` in `go-real-time-service`,
+`python-warehouse-dashboard`, `python-ducklake-service`, `python-bayesian-experiment`,
 `python-bayes-loop` and the Rust templates, and a Makefile in the older templates;
 mise is the default going forward (see `AGENTS.md`).
 
@@ -77,7 +78,9 @@ cookiecutter project-templates/go-service
 cookiecutter project-templates/go-datastar-minimal
 cookiecutter project-templates/go-real-time-service
 cookiecutter project-templates/go-local-app
+cookiecutter project-templates/rust-service
 cookiecutter project-templates/rust-datastar-minimal
+cookiecutter project-templates/rust-real-time-service
 cookiecutter project-templates/python-datastar-minimal
 cookiecutter project-templates/python-warehouse-dashboard
 cookiecutter project-templates/python-service

@@ -319,10 +319,11 @@ impl IntoResponse for AppError {
 
 // ---------------------------------------------------------------------------
 // Compression. Fat-morph HTML compresses ~200:1 because each stream keeps one
-// Brotli context: every frame is compressed against the ones before it. The
-// context's memory is set by the window (lgwin), so keep it small: 2^17 =
-// 128 KiB covers frames up to ~64 KB at ~1.6 MiB per open stream. The usual
-// default (lgwin 22) holds ~9 MiB per stream for no better compression.
+// Brotli context: every frame is compressed against the ones before it. Each
+// open stream holds that context, and its size is set mostly by quality, then
+// by the window. Quality 1 with lgwin 17 (a 128 KiB window, for frames up to
+// ~64 KB) holds ~170 KiB per stream on 16 KB frames; quality 5 holds ~1.6 MiB
+// for ~30% fewer bytes, and the usual default window (lgwin 22) ~9 MiB.
 // ---------------------------------------------------------------------------
 
 fn accepts_brotli(headers: &HeaderMap) -> bool {
@@ -345,7 +346,7 @@ impl Encoder {
             return Self::Identity;
         }
         let params = brotli::enc::BrotliEncoderParams {
-            quality: 5,
+            quality: 1,
             lgwin: 17,
             ..Default::default()
         };

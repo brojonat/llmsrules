@@ -138,10 +138,13 @@ context, so every frame is compressed against the ones before it. The
 `text/event-stream` and can't set the window, so `updates` compresses itself:
 about 40 lines at the bottom of `main.rs`.
 
-The window size sets the memory. Measured with 16 KB frames at quality 5,
-lgwin 17 (a 128 KiB window) holds about 1.6 MiB per open stream and lgwin 22
-(the usual default, 4 MiB) about 9 MiB, for the same bytes on the wire. Keep 2^lgwin at least twice the size of
-your largest frame. `curl` sends no `Accept-Encoding` by default, so the stream
+Each open stream holds that context, and quality sets its size more than
+the window does. Measured with 16 KB frames: quality 1 at lgwin 17 (a
+128 KiB window) holds about 170 KiB per stream and sends 1.7 KB per frame;
+quality 5 holds about 1.6 MiB and sends 1.2 KB; the usual default window
+(lgwin 22) holds about 9 MiB. Open streams are what a crowd multiplies, so
+this uses quality 1. Keep 2^lgwin at least twice the size of your largest
+frame. `curl` sends no `Accept-Encoding` by default, so the stream
 stays readable by hand; `curl --compressed` shows the browser's view.
 
 ## Async notes

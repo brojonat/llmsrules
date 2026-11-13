@@ -14,11 +14,22 @@ frame. Measure after a few hundred ticks; the ring buffer fills gradually, so
 a three-frame test understates steady state badly. Details and numbers are in
 the datastar skill's Gotchas.
 
+## Brotli quality sets per-stream memory more than the window does
+
+After shrinking the window, quality 5 at lgwin 17 still held about 1 MiB per
+open stream in Rust (1,063 KiB on a running server with 300 streams). Quality
+1 held 41 KiB, against 29 KiB uncompressed. Surprising because the window was
+the advertised knob; the higher-quality hashers carry their own tables. The
+cost is bandwidth at every frame size (1 KB: 267 vs 91 bytes per frame; 64
+KB: 7.3 KB vs 4.6 KB), so measure before claiming quality 1 is free. Go's
+encoder gains less (about 2x memory for about 2x bytes).
+
 ## Rust's brotli crate is pathological at quality 5-6 with lgwin 16 or below
 
 In brotli 9.1.1, quality 5-6 with lgwin <= 16 switches to hasher type 40 and
 holds about 15 MiB per encoder, the opposite of what a smaller window should
-do. Go's encoder at the same settings is fine. Use quality 5 at lgwin 17.
+do. Go's encoder at the same settings is fine. Avoid quality 5-9 at lgwin
+16 or below; the templates use quality 1 at lgwin 17.
 
 ## tower-http won't compress SSE, and can't set the Brotli window anyway
 
@@ -51,12 +62,15 @@ A pool of in-memory connections runs migrations on one and queries another
 template's test builds JSON with `serde_json::json!`), or wrap the block in
 `{% raw %}` as the Go templates do. Grep for them before committing a template.
 
-## `go-real-time-service` doesn't build straight from generation
+## `go mod tidy` before templ codegen demotes templ to indirect
 
-The template ships without `go.sum` and with templ sources only. A fresh
-project needs `go mod tidy` and `templ generate` (at the templ version pinned
-in `go.mod`; `@latest` generates code the pinned runtime can't compile) before
-`go build`. Its Makefile handles this; plain `go build` doesn't.
+`go-real-time-service` ships `.templ` sources, not the generated `_templ.go`
+files. Run `go mod tidy` before `templ generate` and tidy sees no import of
+the templ runtime, so it marks templ `// indirect` (and a missing `go.sum`
+made `docker build` fail outright). The template now ships `go.sum` and
+setup runs `go mod download`; if you tidy, generate first. Generate with the
+templ version pinned in `go.mod` (`go tool templ`): `@latest` emits code the
+pinned runtime can't compile.
 
 ## Shared working tree: other agents' staged changes ride along
 
@@ -70,3 +84,9 @@ back anything that isn't yours. `git fetch` and rebase before pushing.
 A pattern like `pkill -f target/debug/app` inside a `bash -c` also matches
 that shell's own command line, so the script kills itself (exit 144). Use
 `pgrep -x <name>` or the PID from `$!`.
+
+## Template validator ports can collide with unrelated processes
+
+Port 18092 was held by a long-running process that has nothing to do with
+this repo, so a validator bound to it failed with "address in use". Check
+`ss -ltnp` before picking a port; `rsrealtime` uses 18093.

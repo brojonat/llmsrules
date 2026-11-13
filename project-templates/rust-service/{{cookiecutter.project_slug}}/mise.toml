@@ -10,25 +10,32 @@ watchexec = "latest"
 _.file = { path = ".env", redact = false }
 
 [tasks.setup]
-description = "Install the toolchain from rust-toolchain.toml and fetch crates"
-run = "rustup show active-toolchain && cargo fetch"
+description = "Toolchain from rust-toolchain.toml, fetch crates, create .env"
+run = [
+  "rustup show active-toolchain",
+  "cargo fetch --locked",
+  "[ -f .env ] || cp .env.example .env",
+]
 
 [tasks.build]
 description = "Release build to target/release/{{cookiecutter.project_slug}}"
-run = "cargo build --release"
+run = "cargo build --release --locked"
 
 [tasks.dev]
 description = "Rebuild and restart on change, tee to logs/serve.log"
-env = { LOG_LEVEL = "info", LOG_FORMAT = "pretty" }
-run = 'mkdir -p logs; f() { watchexec -r -e rs,toml -- cargo run -q -- "$@" 2>&1 | tee logs/serve.log; }; f'
+run = 'mkdir -p logs; f() { watchexec -r -e rs,toml,sql -- cargo run -q -- serve "$@" 2>&1 | tee logs/serve.log; }; f'
 
 [tasks.serve]
-description = "Run the release build (JSON logs), tee to logs/serve.log"
+description = "Run the release build, tee to logs/serve.log"
 depends = ["build"]
-run = 'mkdir -p logs; f() { target/release/{{cookiecutter.project_slug}} "$@" 2>&1 | tee logs/serve.log; }; f'
+run = 'mkdir -p logs; f() { target/release/{{cookiecutter.project_slug}} serve "$@" 2>&1 | tee logs/serve.log; }; f'
+
+[tasks.token]
+description = "Mint a dev bearer token: mise run token --sub alice | jq -r .token"
+run = 'f() { cargo run -q -- token "$@"; }; f'
 
 [tasks.test]
-description = "Run tests"
+description = "Run tests (in-memory SQLite, no server needed)"
 run = 'f() { cargo test -q "$@"; }; f'
 
 [tasks.lint]
@@ -38,3 +45,15 @@ run = ["cargo clippy -q --all-targets -- -D warnings", "cargo fmt --check"]
 [tasks.fmt]
 description = "rustfmt"
 run = "cargo fmt"
+
+[tasks.docker-build]
+description = "Build the container image as {{cookiecutter.project_slug}}:dev"
+run = "docker build -t {{cookiecutter.project_slug}}:dev ."
+
+[tasks.deploy]
+description = "Build, push and apply k8s/prod pinned to this commit (scripts/deploy.sh)"
+run = "scripts/deploy.sh"
+
+[tasks.logs]
+description = "Follow the deployed service's logs"
+run = "kubectl -n {{cookiecutter.k8s_namespace}} logs -f deployment/{{cookiecutter.project_slug}}"

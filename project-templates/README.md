@@ -85,26 +85,62 @@ make run-dev  # Hot reload with logs to logs/server.log
 
 ### rust-service
 
-**A stub, meant to grow.** The `go-service` shape in Rust, cut down to what
-every service needs; the rest is listed in the generated `TODO.md`.
+The `go-service` shape in Rust: a JSON API with its data in SQLite.
 
 - [axum](https://docs.rs/axum) on tokio: handlers as async functions,
   middleware as layers, dependencies through `State` (no globals)
-- clap CLI with env fallbacks (`SERVER_ADDR`, `LOG_LEVEL`, `LOG_FORMAT`)
-- `tracing` logs on stderr, JSON by default, pretty in dev
-- `/healthz`, `/metrics` via `prometheus-client` with an explicit `Registry`
-  (the `prometheus.NewRegistry()` pattern, not a global recorder)
+- `src/items.rs`, an example resource: plain SQL through sqlx
+  (`query_as` onto `FromRow` structs), migrations embedded and applied at
+  startup, tests that run every query against in-memory SQLite
+- JWT bearer auth as an extractor (`claims: Claims` makes a route protected);
+  a `token` subcommand mints tokens
+- `AppError` (thiserror) with a status per variant and JSON error bodies;
+  `anyhow` only in `main`
+- `x-request-id` on every response and every log line (tower-http)
+- `/healthz`, `/metrics` via `prometheus-client`: a request counter and a
+  latency histogram by route template
+- clap CLI (`serve`, `token`) with env fallbacks; JSON or pretty `tracing` logs
 - Graceful shutdown on Ctrl-C / SIGTERM
-- `rust-toolchain.toml` pins stable plus clippy, rustfmt and rust-analyzer
+- Dockerfile: cargo-chef, a static musl binary on `scratch` (about 10 MB,
+  unprivileged)
+- `k8s/prod`: one replica with a volume for the database (`Recreate`), and
+  `mise run deploy` pinned to the commit
 - mise front door; `dev` restarts via watchexec and tees `logs/serve.log`
-
-Not yet: Dockerfile, k8s manifests, a database, auth.
 
 ```bash
 cookiecutter path/to/project-templates/rust-service
 cd my-service
-mise run setup
-mise run dev   # rebuild + restart on save, tees logs/serve.log
+mise run setup   # also copies .env.example to .env
+mise run dev     # rebuild + restart on save, tees logs/serve.log
+TOKEN=$(mise run token --sub you | jq -r .token)
+```
+
+### rust-real-time-service
+
+`go-real-time-service` in Rust: every live view rendered by one tick loop,
+streams sending the newest frame.
+
+- `src/frames.rs`: dirty keys coalesce, only watched views render, each view's
+  frames go out on a `tokio::sync::watch` channel (newest wins; a stream
+  unsubscribes by being dropped), sampled views re-render on a timer, the
+  interval skips missed ticks, and overruns are logged once per 20 s window
+- Three demo features: per-session todos over SQLite, a shared sampled host
+  monitor (sysinfo) that shows its own viewer count, one-shot signal patches
+- maud templates, plain CSS, datastar.js pinned on a CDN; no frontend build
+- Brotli on every stream at quality 1, lgwin 17: about 41 KiB per open
+  stream (quality 5 measured about 1 MiB), so 300 streams fit in a 21 MiB
+  server
+- Writes run in `tokio::spawn` so a disconnect can't land between commit and
+  `mark_dirty`; SIGTERM cancels a token that ends every stream and the tick
+- `mise run load` opens N streams against a running server and prints the
+  tick metrics and the server's memory
+- Same Dockerfile and deploy as `rust-service`; the ingress turns off proxy
+  buffering and raises the read timeout for SSE
+
+```bash
+cookiecutter path/to/project-templates/rust-real-time-service
+cd my-realtime-service
+mise run setup && mise run dev   # open two tabs
 ```
 
 ### go-datastar-minimal
@@ -618,14 +654,38 @@ project-templates/
 ├── rust-service/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
-│       ├── .gitignore
-│       ├── .env.example
+│       ├── .gitignore, .dockerignore, .env.example
 │       ├── AGENTS.md, README.md, TODO.md, CHANGELOG.md, LEARNINGS.md
-│       ├── Cargo.toml
+│       ├── Cargo.toml, Cargo.lock
+│       ├── build.rs                # rebuild when migrations/ changes
+│       ├── Dockerfile              # cargo-chef, static musl on scratch
+│       ├── install-skills.sh
 │       ├── mise.toml
 │       ├── rust-toolchain.toml     # stable + clippy, rustfmt, rust-analyzer
+│       ├── data/                   # the SQLite file in dev (gitignored)
+│       ├── k8s/prod/               # deployment, pvc, service, ingress
+│       ├── migrations/
+│       ├── scripts/deploy.sh
 │       └── src/
-│           └── main.rs             # CLI, state, router, middleware, tests
+│           ├── main.rs             # CLI (serve, token), logging, wiring
+│           ├── app.rs              # state, router, request id + metrics middleware
+│           ├── items.rs            # example resource: SQL + handlers
+│           ├── auth.rs             # JWT keys, Claims extractor
+│           ├── error.rs            # AppError
+│           └── db.rs               # SQLite pool + migrations
+├── rust-real-time-service/
+│   ├── cookiecutter.json
+│   └── {{cookiecutter.project_slug}}/
+│       ├── (same project files as rust-service)
+│       ├── static/app.css
+│       ├── scripts/deploy.sh, scripts/load.sh
+│       └── src/
+│           ├── main.rs             # CLI, wiring, shutdown
+│           ├── app.rs              # state, router, session cookie, layout, AppError
+│           ├── frames.rs           # the tick loop
+│           ├── stream.rs           # frames to SSE, Brotli
+│           ├── todos.rs, monitor.rs, counter.rs
+│           └── db.rs
 ├── go-datastar-minimal/
 │   ├── cookiecutter.json
 │   └── {{cookiecutter.project_slug}}/
@@ -1615,7 +1675,9 @@ The validation script tests:
 | `python-datastar-minimal` | file set is exactly `main.py`/README/`.gitignore`, PEP 723 block present, `./main.py` serves the page, `POST /add` lands on the SSE read stream |
 | `python-warehouse-dashboard` | `mise tasks` (when installed), `uv sync`, CLI `--help`, `generate` + `build`, a second build skips, ruff, `pytest`, server renders the dashboard, `POST /filter/toggle` lands on the session's SSE stream, `/healthz`, `/metrics`, `/admin` |
 | `python-bayes-loop` | `mise tasks` (when installed), `uv sync`, CLI `--help`, ruff, `pytest` on CPU (the model contract, logp on swapped data, feed -> db -> sample over Quack, the feed cursor, the agent's journal), `simulate`, the belt run briefly on CPU fed half a file then the rest in chunks, a fit rendering with the model graph, figures in the carousel, an agent note and status on the dashboard, `/healthz`, `/metrics` |
-| `go-real-time-service` | `make help`, `make setup`, `go build` works on generated output, `make verify-generated`, `make build`, CLI `--help`, `make test`, server `/healthz`, SSE stream emits an element patch |
+| `rust-service` | `cargo test`/`clippy`/`build` with `--locked`, rustfmt, `token` prints JSON, `/healthz`, `POST /items` is 401 without a token and 201 with one, `GET /items` reads the row back, `/metrics` times requests by route, SIGTERM exits 0 |
+| `rust-real-time-service` | `cargo test`/`clippy`/`build` with `--locked`, rustfmt, `/todos` serves the stream placeholder, a write reaches the session's Brotli stream on the next tick, `/metrics` counts 20 subscribers on the shared view, SIGTERM exits 0 with streams open |
+| `go-real-time-service` | `mise tasks`, `mise run setup` (`go mod download` against the committed `go.sum`, vendoring, codegen, css), a bare `go build` fails without codegen, `mise run build`, CLI `--help`, `mise run test`, `mise run lint`, server `/healthz`, SSE stream emits an element patch |
 
 ### Manual Testing
 
@@ -1721,11 +1783,15 @@ uv run test-cli foo do-something
   - [x] Evals, fake LLM, load tester, /admin, /metrics, app DB with migrations
   - [x] Stateless k8s deploy, litestream, refresh schedule left to the user
   - [x] Verified: tests, lint, validator, browser round trip, Docker image
-- [x] Stub rust-service template
-  - [x] axum + tokio server, clap CLI, tracing logs, /healthz, /metrics
-  - [x] Graceful shutdown, in-process router tests, clippy/rustfmt clean
-  - [x] mise tasks (watchexec dev loop tees logs/), rust-toolchain.toml
-  - [ ] Dockerfile, k8s manifests, sqlx, JWT (tracked in the generated TODO.md)
+- [x] Create rust-service template
+  - [x] axum + tokio server, clap CLI (serve, token), tracing logs, /healthz, /metrics
+  - [x] sqlx + SQLite with migrations, example resource, AppError, JWT extractor
+  - [x] Request ids, latency histogram, graceful shutdown, in-process tests
+  - [x] Dockerfile (static musl on scratch), k8s with a volume, deploy script
+- [x] Create rust-real-time-service template
+  - [x] Tick-based frame renderer on tokio `watch` channels, overrun log, metrics
+  - [x] Per-session todos (SQLite), shared sampled monitor, signal patches
+  - [x] Brotli at quality 1 (~41 KiB per stream), load script, SSE-safe ingress
 - [x] Add test-templates.py validation script
 
 ### Remaining

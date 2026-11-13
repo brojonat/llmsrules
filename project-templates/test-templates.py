@@ -93,6 +93,11 @@ TEMPLATES = {
         "output": "test-rust-service",
         "vars": {"project_name": "Test Rust Service", "author": "testuser"},
     },
+    "rsrealtime": {
+        "name": "rust-real-time-service",
+        "output": "test-rs-realtime-service",
+        "vars": {"project_name": "Test Rs Realtime Service", "author": "testuser"},
+    },
     "rsminimal": {
         "name": "rust-datastar-minimal",
         "output": "test-rs-datastar-minimal",
@@ -832,20 +837,35 @@ def validate_rust(project_dir: Path) -> None:
     """Validate rust-service template."""
     section("Validating rust-service")
 
-    run_with_output("cargo test -q", cwd=project_dir)
-    run_with_output("cargo clippy -q --all-targets -- -D warnings", cwd=project_dir)
+    # Cargo.lock is committed, so the build resolves nothing new.
+    run_with_output("cargo test -q --locked", cwd=project_dir)
+    run_with_output("cargo clippy -q --all-targets --locked -- -D warnings", cwd=project_dir)
     run_with_output("cargo fmt --check", cwd=project_dir)
-    success("tests, clippy and rustfmt are clean")
+    success("tests, clippy and rustfmt are clean against the committed Cargo.lock")
 
-    run_with_output("cargo build -q", cwd=project_dir)
+    run_with_output("cargo build -q --locked", cwd=project_dir)
     binary = project_dir / "target" / "debug" / "test-rust-service"
+
+    env = os.environ.copy()
+    env["AUTH_SECRET"] = "validate"
+    env["DATABASE_URL"] = f"sqlite://{project_dir / 'data' / 'validate.db'}"
+    result = subprocess.run(
+        [str(binary), "token", "--sub", "validator"],
+        capture_output=True, text=True, env=env,
+    )
+    token = json.loads(result.stdout)["token"] if result.returncode == 0 else ""
+    if token:
+        success("`token` prints JSON with a token")
+    else:
+        warn(f"`token` failed: {result.stderr.strip()}")
 
     log("Starting server briefly...")
     server = subprocess.Popen(
-        [str(binary), "--addr", "127.0.0.1:18085", "--log-level", "info"],
+        [str(binary), "serve", "--addr", "127.0.0.1:18085", "--log-level", "info"],
         cwd=project_dir,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=env,
     )
     time.sleep(1)
     try:
@@ -860,16 +880,37 @@ def validate_rust(project_dir: Path) -> None:
         else:
             warn("/healthz failed")
 
+        def post(auth: list[str]) -> str:
+            return subprocess.run(
+                ["curl", "-s", "-o", os.devnull, "-w", "%{http_code}", "-X", "POST",
+                 "-H", "content-type: application/json", *auth,
+                 "-d", '{"name":"from the validator"}', "http://localhost:18085/items"],
+                capture_output=True, timeout=5, text=True,
+            ).stdout
+        if post([]) == "401" and post(["-H", f"authorization: Bearer {token}"]) == "201":
+            success("POST /items: 401 without a token, 201 with one")
+        else:
+            warn("POST /items auth check failed")
+
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18085/items"],
+            capture_output=True, timeout=5, text=True,
+        )
+        if "from the validator" in result.stdout:
+            success("GET /items reads the row back from SQLite")
+        else:
+            warn("GET /items did not return the new row")
+
         result = subprocess.run(
             ["curl", "-sf", "http://localhost:18085/metrics"],
             capture_output=True,
             timeout=5,
             text=True,
         )
-        if 'route="/healthz"' in result.stdout:
-            success("/metrics counts the /healthz request")
+        if 'http_request_duration_seconds_count{method="POST",route="/items"}' in result.stdout:
+            success("/metrics times requests by route")
         else:
-            warn("/metrics did not count the request")
+            warn("/metrics did not record the requests")
     except Exception:
         warn("Server checks failed")
     finally:
@@ -963,6 +1004,94 @@ def validate_rs_minimal(project_dir: Path) -> None:
     success("rust-datastar-minimal validation complete")
 
 
+def validate_rs_realtime(project_dir: Path) -> None:
+    """Validate rust-real-time-service template."""
+    section("Validating rust-real-time-service")
+
+    run_with_output("cargo test -q --locked", cwd=project_dir)
+    run_with_output("cargo clippy -q --all-targets --locked -- -D warnings", cwd=project_dir)
+    run_with_output("cargo fmt --check", cwd=project_dir)
+    success("tests, clippy and rustfmt are clean against the committed Cargo.lock")
+
+    run_with_output("cargo build -q --locked", cwd=project_dir)
+    binary = project_dir / "target" / "debug" / "test-rs-realtime-service"
+
+    log("Starting server briefly...")
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite://{project_dir / 'data' / 'validate.db'}"
+    env["FRAME_TICK_MS"] = "50"
+    server = subprocess.Popen(
+        [str(binary), "--addr", "127.0.0.1:18093", "--log-level", "info"],
+        cwd=project_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+    time.sleep(1)
+    cookie = "sid=11111111-1111-4111-8111-111111111111"
+    streams = []
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18093/todos"],
+            capture_output=True, timeout=5, text=True,
+        )
+        if "@get('/todos/stream'" in result.stdout:
+            success("/todos serves the page with its stream placeholder")
+        else:
+            warn("/todos did not render")
+
+        # A tab on the session, then a write: the tick must push it down the stream.
+        tab = subprocess.Popen(
+            ["curl", "-sN", "--compressed", "-m", "3", "-H", f"cookie: {cookie}",
+             "http://localhost:18093/todos/stream"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        time.sleep(0.5)
+        subprocess.run(
+            ["curl", "-sf", "-X", "POST", "-H", f"cookie: {cookie}",
+             "-H", "content-type: application/json", "-d", '{"text":"from the validator"}',
+             "http://localhost:18093/todos"],
+            capture_output=True, timeout=5,
+        )
+        out, _ = tab.communicate(timeout=10)
+        if out.count("datastar-patch-elements") >= 2 and "from the validator" in out:
+            success("a write reaches the session's Brotli stream on the next tick")
+        else:
+            warn("the write did not reach the stream")
+
+        for _ in range(20):
+            streams.append(subprocess.Popen(
+                ["curl", "-sN", "--compressed", "-o", os.devnull, "http://localhost:18093/monitor/stream"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ))
+        time.sleep(1.5)
+        result = subprocess.run(
+            ["curl", "-sf", "http://localhost:18093/metrics"],
+            capture_output=True, timeout=5, text=True,
+        )
+        if "frames_subscribers 20" in result.stdout and "frames_tick_duration_seconds_count" in result.stdout:
+            success("/metrics reports 20 subscribers on the shared view and the tick timings")
+        else:
+            warn("frame metrics missing or wrong")
+    except Exception:
+        warn("Server checks failed")
+    finally:
+        # SIGTERM with 20 streams open: they must end, or shutdown hangs.
+        server.terminate()
+        try:
+            if server.wait(timeout=5) == 0:
+                success("SIGTERM shuts down cleanly with streams open")
+            else:
+                warn(f"server exited {server.returncode} on SIGTERM")
+        except subprocess.TimeoutExpired:
+            warn("server hung on SIGTERM with streams open")
+            server.kill()
+        for p in streams:
+            p.kill()
+
+    success("rust-real-time-service validation complete")
+
+
 VALIDATORS = {
     "go": validate_go,
     "python": validate_python_service,
@@ -976,6 +1105,7 @@ VALIDATORS = {
     "bayesloop": validate_bayes_loop,
     "rust": validate_rust,
     "rsminimal": validate_rs_minimal,
+    "rsrealtime": validate_rs_realtime,
 }
 
 
@@ -993,7 +1123,7 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust", "rsminimal"]), help="Generate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust", "rsminimal", "rsrealtime"]), help="Generate only one template")
 def generate(only: str | None) -> None:
     """Generate templates without validation."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1009,7 +1139,7 @@ def generate(only: str | None) -> None:
 
 
 @cli.command()
-@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust", "rsminimal"]), help="Validate only one template")
+@click.option("--only", type=click.Choice(["go", "python", "cli", "bayesian", "ducklake", "realtime", "minimal", "pyminimal", "warehouse", "bayesloop", "rust", "rsminimal", "rsrealtime"]), help="Validate only one template")
 def validate(only: str | None) -> None:
     """Generate and validate templates."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1120,13 +1250,20 @@ def show() -> None:
     click.echo("  mise run setup     # toolchain from rust-toolchain.toml, cargo fetch")
     click.echo("  mise run dev       # watchexec rebuild + restart, tees logs/serve.log")
     click.echo("  mise run test && mise run lint")
-    click.echo("  cargo run -- --help")
+    click.echo("  mise run token --sub you | jq -r .token")
+    click.echo("  mise run docker-build && mise run deploy")
     click.echo()
 
     click.echo(f"{BLUE}rust-datastar-minimal:{NC}")
     click.echo("  mise run dev       # watchexec rebuild + restart, tees logs/serve.log")
     click.echo("  # open http://localhost:8080 in two tabs")
     click.echo("  mise run test && mise run lint")
+    click.echo()
+
+    click.echo(f"{BLUE}rust-real-time-service:{NC}")
+    click.echo("  mise run setup && mise run dev   # open two tabs")
+    click.echo("  mise run test && mise run lint")
+    click.echo("  mise run load      # 300 streams against a running server")
     click.echo()
 
     click.echo(f"{BLUE}python-ducklake-service:{NC}")
